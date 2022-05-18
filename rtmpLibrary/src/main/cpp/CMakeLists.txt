@@ -39,9 +39,11 @@ find_library( # Sets the name of the path variable.
 
 
 ## 引入头文件目录
-include_directories(librtmp)
+include_directories(librtmp )
+include_directories(libx264)
 ## 配置librtmp
 add_subdirectory(librtmp)
+add_subdirectory(libx264)
 
 # Specifies libraries CMake should link to your target library. You
 # can link multiple libraries, such as libraries you define in this

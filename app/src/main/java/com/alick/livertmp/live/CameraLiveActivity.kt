@@ -4,16 +4,17 @@ import android.app.AlertDialog
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
-import android.os.Looper
 import android.util.Size
 import android.view.LayoutInflater
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import com.alick.commonlibrary.BaseActivity
+import com.alick.livertmp.bean.RtmpServer
 import com.alick.livertmp.constant.LiveConstant
 import com.alick.livertmp.databinding.ActivityCameraLiveBinding
 import com.alick.livertmp.databinding.DialogSelectBinding
@@ -33,6 +34,10 @@ import kotlin.concurrent.thread
 
 class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
+
+    private val liveRoomUrl: RtmpServer by lazy {
+        intent.getSerializableExtra(LiveConstant.INTENT_KEY_LIVE_ROOM_URL) as RtmpServer
+    }
 
     private val lock = ReentrantLock()
     private var mediaCodec: MediaCodec? = null
@@ -64,6 +69,11 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private var isDestroy = false         //是否已销毁Activity
     private var isEncoding = false        //是否正在编码
 
+    var previewWidth = 480
+    var previewHeight = 640
+
+    private var isSoftCoding = false      //是否采用软编码
+
     private val queue: ArrayBlockingQueue<BufferTask> by lazy {
         ArrayBlockingQueue(100)
     }
@@ -93,22 +103,22 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
     private fun bindPreview(cameraProvider: ProcessCameraProvider) {
         val preview: Preview = Preview.Builder()
+            .setTargetResolution(Size(700, 700))
             .build()
 
         val cameraSelector: CameraSelector = CameraSelector.Builder()
             .requireLensFacing(CameraSelector.LENS_FACING_BACK)
             .build()
 
-
-
+        viewBinding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
         preview.setSurfaceProvider(viewBinding.previewView.surfaceProvider)
 
         val imageAnalysis = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-            .setTargetResolution(Size(1280, 720))
+            .setTargetResolution(Size(700, 700))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
-        imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor()) { imageProxy ->
+        imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor2()) { imageProxy ->
             //旋转角度
             lock.lock()
             rotationDegrees = imageProxy.imageInfo.rotationDegrees
@@ -119,6 +129,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 y = ByteArray(imageProxy.planes[0].buffer.remaining())
                 u = ByteArray(imageProxy.planes[1].buffer.remaining())
                 v = ByteArray(imageProxy.planes[2].buffer.remaining())
+                //初始化软编码信息
+//                RtmpManager.setVideoEncInfo(imageProxy.width,imageProxy.height,10, 640000)
                 isInitYUV = true
             }
             imageProxy.planes[0].buffer.get(y)
@@ -152,7 +164,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                     .apply {
                         val mediaFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
                         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-                        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 8000_000)//比特率
+                        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 400_000)//比特率
                         mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)//帧率(fps):15
                         mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)//每隔2秒一个I帧
                         configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -197,8 +209,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                     BLog.i("presentationTimeUs:${bufferInfo.presentationTimeUs}")
 
                     if (rtmpConnectState) {
-                        BLog.i("发送视频时是否为主线程:${Looper.getMainLooper()== Looper.myLooper()}")
-                        RtmpManager.sendVideo(byteArray, bufferInfo.presentationTimeUs/1000)
+                        RtmpManager.sendVideo(byteArray, byteArray.size, bufferInfo.presentationTimeUs / 1000)
                     } else {
                         BLog.e("rtmp未连接成功,因此不发送数据")
                     }
@@ -234,6 +245,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             .setCancelable(true)
             .create()
 
+        binding.rvServerValue.text = liveRoomUrl.alias + "\n" + liveRoomUrl.host
         binding.tvInfo.text = "旋转角度:${rotationDegrees}"
         binding.btnLive.text = if (isLiving) {
             "停止直播"
@@ -296,7 +308,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
 
         binding.btnConnectRtmp.setOnClickListener {
-            val connect = RtmpManager.connect(LiveConstant.LIVE_ROOM_URL)
+            val connect = RtmpManager.connect(liveRoomUrl.host)
             if (connect) {
                 rtmpConnectState = true
                 T.show("连接rtmp成功")
@@ -306,7 +318,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             }
         }
 
-
+        BLog.i("宽:${width},高:${height}")
         alertDialog.show()
     }
 
@@ -327,7 +339,11 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 ImageUtil.nv21toNV12(nv21_rotated, nv12)
 
                 if (isLiving) {
-                    encode(nv12!!)
+                    if (isSoftCoding) {
+//                        RtmpManager.sendNV12(nv12!!, nv12!!.size)
+                    } else {
+                        encode(nv12!!)
+                    }
                 } else {
                     mediaCodec?.apply {
                         stop()

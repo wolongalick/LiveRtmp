@@ -11,14 +11,13 @@
 struct Live {
     RTMP *rtmp;
     int16_t sps_len;
-    char *sps;
+    int8_t *sps;
 
     int16_t pps_len;
-    char *pps;
+    int8_t *pps;
 };
 
 Live *mLive = nullptr;
-
 void logCallback(int level, const char *fmt, va_list args) {
     char log[2048];
     vsprintf(log, fmt, args);
@@ -68,14 +67,15 @@ void saveSPS_PPS(signed char *buf, int len, Live *live_) {
         live_->sps_len = ppsIndex - spsIndex - separatorLength;
         live_->pps_len = len - ppsIndex;
         //根据sps和pps的长度分别申请这两个数组
-        live_->sps = static_cast<char *>(malloc(live_->sps_len));
-        live_->pps = static_cast<char *>(malloc(live_->pps_len));
+        live_->sps = static_cast<int8_t *>(malloc(live_->sps_len));
+        live_->pps = static_cast<int8_t *>(malloc(live_->pps_len));
         //根据sps和pps的索引和长度,分别进行内存拷贝,并存放到live结构体中
         memcpy(live_->sps, buf + spsIndex, live_->sps_len);
         memcpy(live_->pps, buf + ppsIndex, live_->pps_len);
     }
 
 }
+
 /**
  * 连接rtmp服务器
  * @param env
@@ -98,7 +98,7 @@ jboolean connect(JNIEnv *env, jobject thiz, jstring url_) {
         mLive->rtmp = RTMP_Alloc();
 
         //设置rtmp日志级别为:全部
-        RTMP_LogSetLevel(RTMP_LOGALL);
+        RTMP_LogSetLevel(RTMP_LOGERROR);
         //设置rtmp日志回调
         RTMP_LogSetCallback(logCallback);
 
@@ -129,14 +129,13 @@ jboolean connect(JNIEnv *env, jobject thiz, jstring url_) {
         LOGI("连接服务器成功")
 
         //6.连接流
-        ret = RTMP_Connect(mLive->rtmp, nullptr);
+        ret = RTMP_ConnectStream(mLive->rtmp, 0);
         if (!ret) {
             //如果失败,则break
             LOGE("连接流失败")
             break;
         }
         LOGI("连接流成功")
-
 
     } while (!ret);
 
@@ -150,21 +149,22 @@ jboolean connect(JNIEnv *env, jobject thiz, jstring url_) {
     env->ReleaseStringUTFChars(url_, url);
     return ret;
 }
+
 /**
  * 创建sps和pps的包
  * @return  sps和pps的包
  */
-RTMPPacket *createSpsPpsPacket() {
+RTMPPacket *createSpsPpsPacket(int8_t *sps, int8_t *pps, int16_t sps_len, int16_t pps_len) {
     RTMPPacket *packet = static_cast<RTMPPacket *>(malloc(sizeof(RTMPPacket)));
-    int bodySize = 16 + mLive->sps_len + mLive->pps_len;
+    int bodySize = 16 + sps_len + pps_len;
     RTMPPacket_Alloc(packet, bodySize);
 
     packet->m_headerType = RTMP_PACKET_SIZE_LARGE;
     packet->m_packetType = RTMP_PACKET_TYPE_VIDEO;
     packet->m_hasAbsTimestamp = 0;
-    packet->m_nChannel = 0x04;  //视频包的通道固定为0x04
+    packet->m_nChannel = 10;  //视频包的通道固定为0x04
     packet->m_nTimeStamp = 0;   //sps和pps的包,时间戳固定传0
-    packet->m_nInfoField2 = mLive->rtmp->m_stream_id;
+//    packet->m_nInfoField2 = mLive->rtmp->m_stream_id;
     packet->m_nBodySize = bodySize;
 //    packet->m_nBytesRead//暂时用不到,不用传
 //    packet->m_chunk//暂时用不到,不用传
@@ -180,23 +180,23 @@ RTMPPacket *createSpsPpsPacket() {
 
     /*sps数据*/
     packet->m_body[i++] = 0x01;
-    packet->m_body[i++] = mLive->sps[1];
-    packet->m_body[i++] = mLive->sps[2];
-    packet->m_body[i++] = mLive->sps[3];
+    packet->m_body[i++] = sps[1];
+    packet->m_body[i++] = sps[2];
+    packet->m_body[i++] = sps[3];
     packet->m_body[i++] = 0XFF;
 
     /*sps*/
     packet->m_body[i++] = 0xE1;
-    packet->m_body[i++] = ((mLive->sps_len) >> 8) & 0xFF; //sps长度的高八位
-    packet->m_body[i++] = mLive->sps_len & 0xFF;          //sps长度的第八位
-    memcpy(&(packet->m_body[i]), mLive->sps, mLive->sps_len);
-    i += mLive->sps_len;
+    packet->m_body[i++] = ((sps_len) >> 8) & 0xFF; //sps长度的高八位
+    packet->m_body[i++] = sps_len & 0xFF;          //sps长度的第八位
+    memcpy(&(packet->m_body[i]), sps, sps_len);
+    i += sps_len;
 
     /*pps*/
     packet->m_body[i++] = 0x01;
-    packet->m_body[i++] = ((mLive->pps_len) >> 8) & 0xFF; //pps长度的高八位
-    packet->m_body[i++] = mLive->pps_len & 0xFF;          //pps长度的第八位
-    memcpy(&(packet->m_body[i]), mLive->pps, mLive->pps_len);
+    packet->m_body[i++] = ((pps_len) >> 8) & 0xFF; //pps长度的高八位
+    packet->m_body[i++] = pps_len & 0xFF;          //pps长度的第八位
+    memcpy(&(packet->m_body[i]), pps, pps_len);
 
     return packet;
 }
@@ -209,15 +209,16 @@ RTMPPacket *createSpsPpsPacket() {
  * @param timeMs        时间戳(单位:毫秒)
  * @return              视频包
  */
-RTMPPacket *createVideoPacket(bool isIFrame,char *frame, long frameLength, long timeMs) {
+RTMPPacket *createVideoPacket(bool isIFrame, int8_t *frame, long frameLength, long timeMs) {
+    frameLength -= 4;
     RTMPPacket *packet = static_cast<RTMPPacket *>(malloc(sizeof(RTMPPacket)));
-    int bodySize = 9 + mLive->sps_len + mLive->pps_len;
+    int bodySize = 9 + frameLength;
     RTMPPacket_Alloc(packet, bodySize);
 
     packet->m_headerType = RTMP_PACKET_SIZE_LARGE;
     packet->m_packetType = RTMP_PACKET_TYPE_VIDEO;
     packet->m_hasAbsTimestamp = 0;
-    packet->m_nChannel = 0x04;  //视频包的通道固定为0x04
+    packet->m_nChannel = 10;  //视频包的通道固定为0x04
     packet->m_nTimeStamp = timeMs;
     packet->m_nInfoField2 = mLive->rtmp->m_stream_id;
     packet->m_nBodySize = bodySize;
@@ -225,9 +226,9 @@ RTMPPacket *createVideoPacket(bool isIFrame,char *frame, long frameLength, long 
 //    packet->m_chunk//暂时用不到,不用传
 
     int i = 0;
-    if(isIFrame){
+    if (isIFrame) {
         packet->m_body[i++] = 0x17;
-    }else{
+    } else {
         packet->m_body[i++] = 0x27;
     }
     packet->m_body[i++] = 0x01;
@@ -240,8 +241,8 @@ RTMPPacket *createVideoPacket(bool isIFrame,char *frame, long frameLength, long 
     packet->m_body[i++] = (frameLength >> 16) & 0xff;   //h264数据长度的第二个字节值
     packet->m_body[i++] = (frameLength >> 8) & 0xff;    //h264数据长度的第三个字节值
     packet->m_body[i++] = frameLength & 0xff;           //h264数据长度的第四个字节值
-
-    memcpy(&(packet->m_body[i]), frame, frameLength);
+    ;
+    memcpy(&(packet->m_body[i]), frame + 4, frameLength);
 
     return packet;
 }
@@ -266,10 +267,9 @@ int sendPacket(RTMPPacket *packet) {
  * @param timeMs
  * @return
  */
-jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
+jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jint frameLength, jlong timeMs) {
     //获取视频帧
     jbyte *frame = env->GetByteArrayElements(data, nullptr);
-    jsize frameLength = env->GetArrayLength(data);
 
     if (frame[4] == 0x67 && (mLive->sps == nullptr || mLive->pps == nullptr)) {
         //如果此帧是sps,且live中的sps或pps为空,则需要保存sps和pps(sps和pps一定在同一组字节数组中出现,所以可以一起解析)
@@ -277,28 +277,28 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
     } else {
         if (frame[4] == 0x65) {//当为I帧时,需要先放sps和pps,再发送I帧
             //1.先发送sps和pps
-            RTMPPacket *spsPpsPacket = createSpsPpsPacket();
+            RTMPPacket *spsPpsPacket = createSpsPpsPacket(mLive->sps, mLive->pps, mLive->sps_len, mLive->pps_len);
             bool sps_pps_result = sendPacket(spsPpsPacket);
-            if(sps_pps_result){
+            if (sps_pps_result) {
                 LOGI("sps和pps发送成功")
-            }else{
+            } else {
                 LOGE("sps和pps发送失败")
             }
             //2.再发送I帧
-            RTMPPacket *IFramePacket = createVideoPacket(true,reinterpret_cast<char *>(frame), frameLength, timeMs);
+            RTMPPacket *IFramePacket = createVideoPacket(true, reinterpret_cast<int8_t *>(frame), frameLength, timeMs);
             int iFrameResult = sendPacket(IFramePacket);
-            if(iFrameResult){
+            if (iFrameResult) {
                 LOGI("I帧发送成功")
-            }else{
+            } else {
                 LOGE("I帧发送失败")
             }
         } else {
             //此帧可能是P帧或B帧,直接发送即可
-            RTMPPacket *P_BFramePacket = createVideoPacket(false,reinterpret_cast<char *>(frame), frameLength, timeMs);
+            RTMPPacket *P_BFramePacket = createVideoPacket(false, reinterpret_cast<int8_t *>(frame), frameLength, timeMs);
             int pbFrameResult = sendPacket(P_BFramePacket);
-            if(pbFrameResult){
+            if (pbFrameResult) {
                 LOGI("P帧或B帧发送成功")
-            }else{
+            } else {
                 LOGE("P帧或B帧发送失败")
             }
         }
@@ -309,9 +309,10 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
     return FALSE;
 }
 
+
 static JNINativeMethod methods[] = {
         {"connect",   "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
-        {"sendVideo", "([BJ)Z",                reinterpret_cast<void *>(sendVideo)}
+        {"sendVideo", "([BIJ)Z",               reinterpret_cast<void *>(sendVideo)},
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -331,3 +332,5 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     return JNI_VERSION_1_4;
 }
+
+

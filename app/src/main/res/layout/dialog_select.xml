@@ -5,6 +5,23 @@
     android:orientation="vertical">
 
     <TextView
+        android:id="@+id/rvServer"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="服务器地址:"
+        android:textSize="18sp"
+        android:textColor="@color/black"
+        />
+    <TextView
+        android:id="@+id/rvServerValue"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="18sp"
+        android:textColor="@color/black"
+        />
+
+    <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="信息:"
