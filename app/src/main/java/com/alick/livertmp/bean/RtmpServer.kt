@@ -7,4 +7,8 @@ import java.io.Serializable
  * @description
  * @date 2022/5/22 19:32
  */
-class RtmpServer(val alias:String,val host: String, val selected: Boolean = false, val isEnableEdit: Boolean = false) : Serializable
+class RtmpServer(var alias:String, var host: String, var isSelected: Boolean = false, val isEnableEdit: Boolean = false) : Serializable{
+    override fun toString(): String {
+        return "RtmpServer(alias='$alias', host='$host', selected=$isSelected, isEnableEdit=$isEnableEdit)"
+    }
+}

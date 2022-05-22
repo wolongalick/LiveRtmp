@@ -11,10 +11,11 @@
         <entry key="..\:/StudioWorspace/Learn/LiveRtmp/app/src/main/res/layout/activity_main.xml" value="0.1890625" />
         <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/drawable/server_selector.xml" value="0.204" />
         <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/activity_camera_live.xml" value="0.22" />
-        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/activity_main.xml" value="0.25" />
+        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/activity_main.xml" value="0.22" />
+        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/activity_main2.xml" value="0.2" />
         <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/dialog_select.xml" value="0.240625" />
-        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/item_server.xml" value="0.33" />
-        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/item_server_edit.xml" value="0.2630208333333333" />
+        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/item_server.xml" value="0.2" />
+        <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/item_server_edit.xml" value="0.33" />
         <entry key="..\:/StudioWorspace/ffmpeg/LiveRtmp/app/src/main/res/layout/toast.xml" value="0.22" />
       </map>
     </option>

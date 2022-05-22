@@ -98,9 +98,9 @@ jboolean connect(JNIEnv *env, jobject thiz, jstring url_) {
         mLive->rtmp = RTMP_Alloc();
 
         //设置rtmp日志级别为:全部
-        RTMP_LogSetLevel(RTMP_LOGERROR);
+//        RTMP_LogSetLevel(RTMP_LOGERROR);
         //设置rtmp日志回调
-        RTMP_LogSetCallback(logCallback);
+//        RTMP_LogSetCallback(logCallback);
 
         //2.初始化
         RTMP_Init(mLive->rtmp);
@@ -280,7 +280,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jint frameLength,
             RTMPPacket *spsPpsPacket = createSpsPpsPacket(mLive->sps, mLive->pps, mLive->sps_len, mLive->pps_len);
             bool sps_pps_result = sendPacket(spsPpsPacket);
             if (sps_pps_result) {
-                LOGI("sps和pps发送成功")
+//                LOGI("sps和pps发送成功")
             } else {
                 LOGE("sps和pps发送失败")
             }
@@ -288,7 +288,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jint frameLength,
             RTMPPacket *IFramePacket = createVideoPacket(true, reinterpret_cast<int8_t *>(frame), frameLength, timeMs);
             int iFrameResult = sendPacket(IFramePacket);
             if (iFrameResult) {
-                LOGI("I帧发送成功")
+//                LOGI("I帧发送成功")
             } else {
                 LOGE("I帧发送失败")
             }
@@ -297,7 +297,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jint frameLength,
             RTMPPacket *P_BFramePacket = createVideoPacket(false, reinterpret_cast<int8_t *>(frame), frameLength, timeMs);
             int pbFrameResult = sendPacket(P_BFramePacket);
             if (pbFrameResult) {
-                LOGI("P帧或B帧发送成功")
+//                LOGI("P帧或B帧发送成功")
             } else {
                 LOGE("P帧或B帧发送失败")
             }

@@ -192,7 +192,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 //输入缓冲区归位
                 codec.queueInputBuffer(inputIndex, 0, nv12.size, pts, 0)
                 generateIndex++
-                BLog.i("generateIndex:${generateIndex}")
+//                BLog.i("generateIndex:${generateIndex}")
             }
 
             val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
@@ -206,7 +206,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                         BLog.i("写入H264文件,16进制内容:${FileUtils.byteArray2Hex(byteArray)}")
                     }
 
-                    BLog.i("presentationTimeUs:${bufferInfo.presentationTimeUs}")
+//                    BLog.i("presentationTimeUs:${bufferInfo.presentationTimeUs}")
 
                     if (rtmpConnectState) {
                         RtmpManager.sendVideo(byteArray, byteArray.size, bufferInfo.presentationTimeUs / 1000)
