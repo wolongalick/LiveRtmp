@@ -17,12 +17,14 @@ file(GLOB SRC_FILE *.cpp *.h)
 
 add_library( # Sets the name of the library.
         rtmplibrary
-
         # Sets the library as a shared library.
         SHARED
 
         # Provides a relative path to your source file(s).
-        rtmplibrary.cpp)
+        rtmplibrary.cpp
+        CxwLog.cpp
+        CxwYuv.cpp
+        )
 
 # Searches for a specified prebuilt library and stores the path as a
 # variable. Because CMake includes system libraries in the search path by
@@ -41,9 +43,16 @@ find_library( # Sets the name of the path variable.
 ## 引入头文件目录
 include_directories(librtmp )
 include_directories(libx264)
+
+# 外部头文件路径，因为我们要引用 libyuv.h
+include_directories(libyuv/include)
 ## 配置librtmp
 add_subdirectory(librtmp)
 add_subdirectory(libx264)
+
+# 添加子项目，libyuv 作为一个子项目自己编译，有自己的 CMakeList.txt。
+# 编译结果存放在 build 目录下，可以在里面找到生成的 .so 文件。
+add_subdirectory(libyuv ./build)
 
 # Specifies libraries CMake should link to your target library. You
 # can link multiple libraries, such as libraries you define in this
@@ -57,4 +66,5 @@ target_link_libraries( # Specifies the target library.
         ${log-lib}
 
         rtmp
+        yuv
         )

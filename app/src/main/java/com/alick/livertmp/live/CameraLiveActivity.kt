@@ -4,7 +4,6 @@ import android.app.AlertDialog
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
-import android.util.Size
 import android.view.LayoutInflater
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -20,6 +19,7 @@ import com.alick.livertmp.databinding.ActivityCameraLiveBinding
 import com.alick.livertmp.databinding.DialogSelectBinding
 import com.alick.livertmp.utils.ExecutorUtils
 import com.alick.livertmp.utils.ImageUtil
+import com.alick.livertmp.utils.TimeConsumingUtils
 import com.alick.rtmplib.RtmpManager
 import com.alick.utilslibrary.BLog
 import com.alick.utilslibrary.FileUtils
@@ -30,6 +30,9 @@ import java.io.File
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.thread
+import kotlin.concurrent.timer
+import kotlin.concurrent.timerTask
+import kotlin.system.measureTimeMillis
 
 
 class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
@@ -48,6 +51,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private lateinit var v: ByteArray
 
     private var nv21: ByteArray? = null
+    private var i420: ByteArray? = null
+    private var i420_rotated: ByteArray? = null
     private var nv21_rotated: ByteArray? = null
     private var nv12: ByteArray? = null
     private var lastTs = 0L
@@ -60,8 +65,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private var h264File: File? = null
     private var isRecordH264File = false  //是否记录h264数据到文件
 
-    private var lastIFrameTs = 0L       //关键帧时间戳,单位毫秒
-    private val I_FRAME_INTERVAL = 2    //关键帧间隔为2秒
     private val FRAME_RATE = 24         //帧率24
     private var pts = 0L                //显示时间戳
     private var generateIndex = 0L        //生成的帧索引
@@ -69,8 +72,20 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private var isDestroy = false         //是否已销毁Activity
     private var isEncoding = false        //是否正在编码
 
-    var previewWidth = 480
-    var previewHeight = 640
+    private val timeConsumingUtils = TimeConsumingUtils(FRAME_RATE) {
+        BLog.i("每24帧耗时${it}毫秒")
+    }
+
+    private val block = {
+//                    ImageUtil.nv21_rotate_to_90(nv21, nv21_rotated, width, height)
+//                    ImageUtil.nv21toNV12(nv21_rotated, nv12)
+
+//                    RtmpManager.nv21ToI420(nv21!!, width, height, i420!!)
+//                    RtmpManager.rotateI420(i420!!, width, height, i420_rotated!!, 90)
+//                    RtmpManager.i420ToNv12(i420_rotated!!, height, width, nv12!!)
+        BLog.i("nv21长度:${nv21!!.size}")
+        RtmpManager.nv21ToI420RotateToNv12(nv21!!.size, nv21!!, width, height, nv12!!, 90)
+    }
 
     private var isSoftCoding = false      //是否采用软编码
 
@@ -103,7 +118,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
     private fun bindPreview(cameraProvider: ProcessCameraProvider) {
         val preview: Preview = Preview.Builder()
-            .setTargetResolution(Size(700, 700))
+//            .setTargetResolution(Size(700, 700))
             .build()
 
         val cameraSelector: CameraSelector = CameraSelector.Builder()
@@ -115,7 +130,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
         val imageAnalysis = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-            .setTargetResolution(Size(700, 700))
+//            .setTargetResolution(Size(700, 700))
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
         imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor2()) { imageProxy ->
@@ -143,6 +158,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             val size = width * height * 3 / 2
             if (nv21 == null) {
                 nv21 = ByteArray(size)
+                i420 = ByteArray(size)
+                i420_rotated = ByteArray(size)
                 nv21_rotated = ByteArray(size)
                 nv12 = ByteArray(size)
             }
@@ -164,7 +181,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                     .apply {
                         val mediaFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
                         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-                        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 400_000)//比特率
+                        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 200_000)//比特率
                         mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)//帧率(fps):15
                         mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)//每隔2秒一个I帧
                         configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
@@ -209,7 +226,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 //                    BLog.i("presentationTimeUs:${bufferInfo.presentationTimeUs}")
 
                     if (rtmpConnectState) {
-                        RtmpManager.sendVideo(byteArray, byteArray.size, bufferInfo.presentationTimeUs / 1000)
+                        RtmpManager.sendVideo(byteArray, bufferInfo.presentationTimeUs / 1000)
                     } else {
                         BLog.e("rtmp未连接成功,因此不发送数据")
                     }
@@ -245,8 +262,12 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             .setCancelable(true)
             .create()
 
-        binding.rvServerValue.text = liveRoomUrl.alias + "\n" + liveRoomUrl.host
-        binding.tvInfo.text = "旋转角度:${rotationDegrees}"
+        val sb = StringBuilder()
+        sb.append(liveRoomUrl.alias + "\n" + liveRoomUrl.host + "\n")
+        sb.append("旋转角度:${rotationDegrees}\n")
+        sb.append("预览布局宽x高:${viewBinding.previewView.width}x${viewBinding.previewView.height}\n")
+        sb.append("传输图像宽x高:${height}x${width}\n")//由于摄像头是横着的,所以宽高要互换位置
+        binding.rvServerValue.text = sb.toString()
         binding.btnLive.text = if (isLiving) {
             "停止直播"
         } else {
@@ -268,6 +289,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
 
         binding.btnSaveNV21Rotate.setOnClickListener {
+            //由于摄像头是横着的,所以宽高要互换位置
             val isSuccess = ImageUtil.saveYUV2File(nv21_rotated, File(getExternalFilesDir("nv21rotated"), "nv21rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
             T.show(
                 if (isSuccess) {
@@ -318,7 +340,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             }
         }
 
-        BLog.i("宽:${width},高:${height}")
+        BLog.i("宽:${height},高:${width}")
         alertDialog.show()
     }
 
@@ -326,17 +348,16 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         queue.put(bufferTask)
     }
 
+
     private fun startQueue() {
         thread {
             while (!isDestroy) {
                 val bufferTask = queue.take()
                 //YUV写入NV21
                 ImageUtil.yuvToNv21(bufferTask.y, bufferTask.u, bufferTask.v, nv21, width, height)
-                //NV21顺时针旋转90度
-                ImageUtil.nv21_rotate_to_90(nv21, nv21_rotated, width, height)
 
-                //NV21(旋转90度后的)转NV12
-                ImageUtil.nv21toNV12(nv21_rotated, nv12)
+                block()
+//                timeConsumingUtils.runAndStatistics(block)
 
                 if (isLiving) {
                     if (isSoftCoding) {

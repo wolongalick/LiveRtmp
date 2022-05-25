@@ -4,6 +4,72 @@
 #include "librtmp/rtmp.h"
 #include "librtmp/log.h"
 #include "CxwLog.h"
+#include "CxwYuv.h"
+
+extern "C"
+JNIEXPORT void JNICALL
+nv21ToI420(JNIEnv *env, jobject thiz, jbyteArray src_nv21_data, jint width, jint height, jbyteArray dst_i420_data) {
+    jbyte *src_nv21_native = env->GetByteArrayElements(src_nv21_data, JNI_FALSE);
+    jbyte *dst_i420_native = env->GetByteArrayElements(dst_i420_data, JNI_FALSE);
+
+    CxwYuv cxwYuv = CxwYuv();
+    cxwYuv.nv21ToI420(src_nv21_native, width, height, dst_i420_native);
+
+    env->ReleaseByteArrayElements(src_nv21_data, src_nv21_native, 0);
+    env->ReleaseByteArrayElements(dst_i420_data, dst_i420_native, 0);
+}
+extern "C"
+JNIEXPORT void JNICALL
+rotateI420(JNIEnv *env, jobject thiz, jbyteArray src_i420_data, jint width, jint height, jbyteArray dst_i420_data, jint degree) {
+    jbyte *src_i420_native = env->GetByteArrayElements(src_i420_data, JNI_FALSE);
+    jbyte *dst_i420_native = env->GetByteArrayElements(dst_i420_data, JNI_FALSE);
+
+    CxwYuv cxwYuv = CxwYuv();
+    cxwYuv.rotateI420(src_i420_native, width, height, dst_i420_native, degree);
+
+    env->ReleaseByteArrayElements(src_i420_data, src_i420_native, 0);
+    env->ReleaseByteArrayElements(dst_i420_data, dst_i420_native, 0);
+}
+extern "C"
+JNIEXPORT void JNICALL
+i420ToNv12(JNIEnv *env, jobject thiz, jbyteArray src_i420_data, jint width, jint height, jbyteArray dst_nv12_data) {
+    jbyte *src_i420_native = env->GetByteArrayElements(src_i420_data, JNI_FALSE);
+    jbyte *dst_nv12_native = env->GetByteArrayElements(dst_nv12_data, JNI_FALSE);
+
+    CxwYuv cxwYuv = CxwYuv();
+    cxwYuv.i420ToNv12(src_i420_native, width, height, dst_nv12_native);
+
+    env->ReleaseByteArrayElements(src_i420_data, src_i420_native, 0);
+    env->ReleaseByteArrayElements(dst_nv12_data, dst_nv12_native, 0);
+}
+CxwYuv cxwYuv = CxwYuv();
+jbyte *i420 = nullptr;
+jbyte *i420rotated = nullptr;
+extern "C"
+JNIEXPORT void JNICALL
+nv21ToI420RotateToNv12(JNIEnv *env, jobject thiz, jint dataSize, jbyteArray src_nv21_data, jint width, jint height, jbyteArray dst_nv12_data, jint degree) {
+    jbyte *src_nv21_native = env->GetByteArrayElements(src_nv21_data, JNI_FALSE);
+    jbyte *dst_nv12_native = env->GetByteArrayElements(dst_nv12_data, JNI_FALSE);
+
+    jsize arrayLength = env->GetArrayLength(src_nv21_data);
+
+    LOGI("sizeof(src_nv21_native):%d\tsizeof(jbyte):%d\tdataSize:%d\tarrayLength:%d", sizeof(src_nv21_native), sizeof(jbyte), dataSize, arrayLength)
+
+    if (i420 == nullptr) {
+        i420 = static_cast<jbyte *>(malloc(sizeof(jbyte) * dataSize));
+    }
+
+    if (i420rotated == nullptr) {
+        i420rotated = static_cast<jbyte *>(malloc(sizeof(jbyte) * dataSize));
+    }
+    cxwYuv.nv21ToI420(src_nv21_native, width, height, i420);
+    cxwYuv.rotateI420(i420, width, height, i420rotated, 90);
+    cxwYuv.i420ToNv12(i420rotated, height, width, dst_nv12_native);
+
+    env->ReleaseByteArrayElements(src_nv21_data, src_nv21_native, 0);
+    env->ReleaseByteArrayElements(dst_nv12_data, dst_nv12_native, 0);
+
+}
 
 /**
  * rtmp结构体
@@ -18,6 +84,7 @@ struct Live {
 };
 
 Live *mLive = nullptr;
+
 void logCallback(int level, const char *fmt, va_list args) {
     char log[2048];
     vsprintf(log, fmt, args);
@@ -267,9 +334,11 @@ int sendPacket(RTMPPacket *packet) {
  * @param timeMs
  * @return
  */
-jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jint frameLength, jlong timeMs) {
+jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
     //获取视频帧
     jbyte *frame = env->GetByteArrayElements(data, nullptr);
+
+    jsize frameLength = env->GetArrayLength(data);
 
     if (frame[4] == 0x67 && (mLive->sps == nullptr || mLive->pps == nullptr)) {
         //如果此帧是sps,且live中的sps或pps为空,则需要保存sps和pps(sps和pps一定在同一组字节数组中出现,所以可以一起解析)
@@ -311,8 +380,12 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jint frameLength,
 
 
 static JNINativeMethod methods[] = {
-        {"connect",   "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
-        {"sendVideo", "([BIJ)Z",               reinterpret_cast<void *>(sendVideo)},
+        {"nv21ToI420",             "([BII[B)V",             reinterpret_cast<void *>(nv21ToI420)},
+        {"rotateI420",             "([BII[BI)V",            reinterpret_cast<void *>(rotateI420)},
+        {"i420ToNv12",             "([BII[B)V",             reinterpret_cast<void *>(i420ToNv12)},
+        {"nv21ToI420RotateToNv12", "(I[BII[BI)V",           reinterpret_cast<void *>(nv21ToI420RotateToNv12)},
+        {"connect",                "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
+        {"sendVideo",              "([BJ)Z",                reinterpret_cast<void *>(sendVideo)},
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -332,5 +405,4 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     return JNI_VERSION_1_4;
 }
-
 
