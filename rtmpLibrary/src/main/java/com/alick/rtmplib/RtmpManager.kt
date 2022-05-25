@@ -27,8 +27,10 @@ object RtmpManager {
      */
     external fun i420ToNv12(src_i420_data: ByteArray, width: Int, height: Int, dst_nv12_data: ByteArray)
 
-
-    external fun nv21ToI420RotateToNv12(dataSize:Int,src_nv21_data: ByteArray, width: Int, height: Int, dst_nv12_data: ByteArray, degree: Int)
+    /**
+     * NV21转换成I420,再旋转,再转换成NV12
+     */
+    external fun nv21ToI420RotateToNv12(src_nv21_data: ByteArray, width: Int, height: Int, dst_nv12_data: ByteArray, degree: Int)
 
 
     external fun connect(url: String): Boolean

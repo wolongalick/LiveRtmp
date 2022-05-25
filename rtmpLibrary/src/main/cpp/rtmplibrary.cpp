@@ -47,20 +47,19 @@ jbyte *i420 = nullptr;
 jbyte *i420rotated = nullptr;
 extern "C"
 JNIEXPORT void JNICALL
-nv21ToI420RotateToNv12(JNIEnv *env, jobject thiz, jint dataSize, jbyteArray src_nv21_data, jint width, jint height, jbyteArray dst_nv12_data, jint degree) {
+nv21ToI420RotateToNv12(JNIEnv *env, jobject thiz, jbyteArray src_nv21_data, jint width, jint height, jbyteArray dst_nv12_data, jint degree) {
     jbyte *src_nv21_native = env->GetByteArrayElements(src_nv21_data, JNI_FALSE);
     jbyte *dst_nv12_native = env->GetByteArrayElements(dst_nv12_data, JNI_FALSE);
 
     jsize arrayLength = env->GetArrayLength(src_nv21_data);
 
-    LOGI("sizeof(src_nv21_native):%d\tsizeof(jbyte):%d\tdataSize:%d\tarrayLength:%d", sizeof(src_nv21_native), sizeof(jbyte), dataSize, arrayLength)
 
     if (i420 == nullptr) {
-        i420 = static_cast<jbyte *>(malloc(sizeof(jbyte) * dataSize));
+        i420 = static_cast<jbyte *>(malloc(sizeof(jbyte) * arrayLength));
     }
 
     if (i420rotated == nullptr) {
-        i420rotated = static_cast<jbyte *>(malloc(sizeof(jbyte) * dataSize));
+        i420rotated = static_cast<jbyte *>(malloc(sizeof(jbyte) * arrayLength));
     }
     cxwYuv.nv21ToI420(src_nv21_native, width, height, i420);
     cxwYuv.rotateI420(i420, width, height, i420rotated, 90);
@@ -383,7 +382,7 @@ static JNINativeMethod methods[] = {
         {"nv21ToI420",             "([BII[B)V",             reinterpret_cast<void *>(nv21ToI420)},
         {"rotateI420",             "([BII[BI)V",            reinterpret_cast<void *>(rotateI420)},
         {"i420ToNv12",             "([BII[B)V",             reinterpret_cast<void *>(i420ToNv12)},
-        {"nv21ToI420RotateToNv12", "(I[BII[BI)V",           reinterpret_cast<void *>(nv21ToI420RotateToNv12)},
+        {"nv21ToI420RotateToNv12", "([BII[BI)V",           reinterpret_cast<void *>(nv21ToI420RotateToNv12)},
         {"connect",                "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
         {"sendVideo",              "([BJ)Z",                reinterpret_cast<void *>(sendVideo)},
 };

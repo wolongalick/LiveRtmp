@@ -84,7 +84,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 //                    RtmpManager.rotateI420(i420!!, width, height, i420_rotated!!, 90)
 //                    RtmpManager.i420ToNv12(i420_rotated!!, height, width, nv12!!)
         BLog.i("nv21长度:${nv21!!.size}")
-        RtmpManager.nv21ToI420RotateToNv12(nv21!!.size, nv21!!, width, height, nv12!!, 90)
+        RtmpManager.nv21ToI420RotateToNv12(nv21!!, width, height, nv12!!, 90)
     }
 
     private var isSoftCoding = false      //是否采用软编码
