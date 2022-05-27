@@ -16,7 +16,7 @@ import com.alick.utilslibrary.StorageUtils
 import com.alick.utilslibrary.T
 
 class MainActivity : BaseActivity<ActivityMainBinding>() {
-    private val PERMISS_CODE_CAMERA = 1000
+    private val PERMISS_CODE = 1000
 
     private val rtmpServerAdapter: RtmpServerAdapter by lazy {
         RtmpServerAdapter(
@@ -46,10 +46,12 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
     }
 
     private fun requestPermissions() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PermissionChecker.PERMISSION_GRANTED) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PermissionChecker.PERMISSION_GRANTED
+            && ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PermissionChecker.PERMISSION_GRANTED
+        ) {
             gotoCameraLiveActivity()
         } else {
-            requestPermissions(arrayOf(Manifest.permission.CAMERA), PERMISS_CODE_CAMERA)
+            requestPermissions(arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO), PERMISS_CODE)
         }
     }
 
@@ -57,14 +59,21 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
         when (requestCode) {
-            PERMISS_CODE_CAMERA -> {
-                if (grantResults.all {
-                        it == PermissionChecker.PERMISSION_GRANTED
-                    }) {
-                    gotoCameraLiveActivity()
-                } else {
-                    T.show("请授予app摄像头权限")
+            PERMISS_CODE -> {
+                grantResults.forEachIndexed { index, i ->
+                    if (i == PermissionChecker.PERMISSION_DENIED) {
+                        when (permissions[index]) {
+                            Manifest.permission.CAMERA -> {
+                                T.show("请授予打开摄像头权限")
+                            }
+                            Manifest.permission.RECORD_AUDIO -> {
+                                T.show("请授予录音权限")
+                            }
+                        }
+                        return
+                    }
                 }
+                gotoCameraLiveActivity()
             }
         }
     }

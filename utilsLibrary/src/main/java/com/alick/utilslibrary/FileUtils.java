@@ -533,13 +533,17 @@ public class FileUtils {
     }
 
     public static void writeBytes(File file, boolean append, byte[] array) {
+        writeBytes(file,append,array,array.length);
+    }
+    public static void writeBytes(File file, boolean append, byte[] array,int size) {
         FileOutputStream writer = null;
         try {
             // 打开一个写文件器，构造函数中的第二个参数true表示以追加形式写文件
             createFile(file);
             writer = new FileOutputStream(file, append);
-            writer.write(array);
-            writer.write('\n');
+            writer.write(array,0,size);
+            writer.flush();
+//            writer.write('\n');
         } catch (IOException e) {
             e.printStackTrace();
         } finally {

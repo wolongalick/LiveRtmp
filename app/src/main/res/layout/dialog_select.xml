@@ -12,27 +12,12 @@
         android:textSize="18sp"
         android:textColor="@color/black"
         />
-    <TextView
-        android:id="@+id/rvServerValue"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text=""
-        android:textSize="18sp"
-        android:textColor="@color/black"
-        />
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="信息:"
-        android:textSize="18sp"
-        android:textColor="@color/black"
-        />
     <TextView
         android:id="@+id/tvInfo"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="反反复复付付付"
+        android:text=""
         android:textSize="18sp"
         android:textColor="@color/black"
         />
@@ -64,6 +49,11 @@
     <CheckBox
         android:id="@+id/cbRecordH264File"
         android:text="是否记录H264数据到文件"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+    <CheckBox
+        android:id="@+id/cbRecordPcmFile"
+        android:text="是否记录pcm数据到文件"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content" />
 

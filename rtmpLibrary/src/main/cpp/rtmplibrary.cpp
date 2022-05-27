@@ -228,7 +228,7 @@ RTMPPacket *createSpsPpsPacket(int8_t *sps, int8_t *pps, int16_t sps_len, int16_
     packet->m_headerType = RTMP_PACKET_SIZE_LARGE;
     packet->m_packetType = RTMP_PACKET_TYPE_VIDEO;
     packet->m_hasAbsTimestamp = 0;
-    packet->m_nChannel = 10;  //视频包的通道固定为0x04
+    packet->m_nChannel = 0x04;  //视频包的通道固定为0x04
     packet->m_nTimeStamp = 0;   //sps和pps的包,时间戳固定传0
 //    packet->m_nInfoField2 = mLive->rtmp->m_stream_id;
     packet->m_nBodySize = bodySize;
@@ -284,7 +284,7 @@ RTMPPacket *createVideoPacket(bool isIFrame, int8_t *frame, long frameLength, lo
     packet->m_headerType = RTMP_PACKET_SIZE_LARGE;
     packet->m_packetType = RTMP_PACKET_TYPE_VIDEO;
     packet->m_hasAbsTimestamp = 0;
-    packet->m_nChannel = 10;  //视频包的通道固定为0x04
+    packet->m_nChannel = 0x04;  //视频包的通道固定为0x04
     packet->m_nTimeStamp = timeMs;
     packet->m_nInfoField2 = mLive->rtmp->m_stream_id;
     packet->m_nBodySize = bodySize;
@@ -312,6 +312,32 @@ RTMPPacket *createVideoPacket(bool isIFrame, int8_t *frame, long frameLength, lo
 
     return packet;
 }
+
+RTMPPacket *createAudioPacket(int8_t *frame, long frameLength, long timeMs, bool isHeader) {
+    RTMPPacket *packet = static_cast<RTMPPacket *>(malloc(sizeof(RTMPPacket)));
+    int bodySize = 2 + frameLength;
+    RTMPPacket_Alloc(packet, bodySize);
+
+    packet->m_headerType = RTMP_PACKET_SIZE_LARGE;
+    packet->m_packetType = RTMP_PACKET_TYPE_AUDIO;
+    packet->m_hasAbsTimestamp = 0;
+    packet->m_nChannel = 0x05;  //视频包的通道固定为0x04
+    packet->m_nTimeStamp = timeMs;
+    packet->m_nInfoField2 = mLive->rtmp->m_stream_id;
+    packet->m_nBodySize = bodySize;
+
+    packet->m_body[0] = 0xAF;
+    if (isHeader) {
+        packet->m_body[1] = 0x00;
+    } else {
+        packet->m_body[1] = 0x01;
+    }
+
+    memcpy(&(packet->m_body[2]), frame, frameLength);
+
+    return packet;
+}
+
 
 /**
  * 发送数据包
@@ -353,7 +379,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
                 LOGE("sps和pps发送失败")
             }
             //2.再发送I帧
-            RTMPPacket *IFramePacket = createVideoPacket(true, reinterpret_cast<int8_t *>(frame), frameLength, timeMs);
+            RTMPPacket *IFramePacket = createVideoPacket(true, frame, frameLength, timeMs);
             int iFrameResult = sendPacket(IFramePacket);
             if (iFrameResult) {
 //                LOGI("I帧发送成功")
@@ -362,7 +388,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
             }
         } else {
             //此帧可能是P帧或B帧,直接发送即可
-            RTMPPacket *P_BFramePacket = createVideoPacket(false, reinterpret_cast<int8_t *>(frame), frameLength, timeMs);
+            RTMPPacket *P_BFramePacket = createVideoPacket(false, frame, frameLength, timeMs);
             int pbFrameResult = sendPacket(P_BFramePacket);
             if (pbFrameResult) {
 //                LOGI("P帧或B帧发送成功")
@@ -377,14 +403,45 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
     return FALSE;
 }
 
+/**
+ * 发送音频数据
+ * @param env
+ * @param thiz
+ * @param data
+ * @param timeMs
+ * @param isHeader
+ * @return
+ */
+jboolean sendAudio(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs, jboolean isHeader) {
+    jbyte *audioData = env->GetByteArrayElements(data, FALSE);
+    RTMPPacket *pPacket = createAudioPacket(audioData, env->GetArrayLength(data), timeMs, isHeader);
+    int audioResult = sendPacket(pPacket);
+    if (audioResult) {
+//        LOGI("发送音频包成功")
+    } else {
+        LOGE("发送音频包失败")
+    }
+    env->ReleaseByteArrayElements(data, audioData, 0);
+
+    return FALSE;
+}
+
+
+void close(JNIEnv *env, jobject thiz) {
+    RTMP_Close(mLive->rtmp);
+    RTMP_Free(mLive->rtmp);
+    mLive = nullptr;
+}
 
 static JNINativeMethod methods[] = {
         {"nv21ToI420",             "([BII[B)V",             reinterpret_cast<void *>(nv21ToI420)},
         {"rotateI420",             "([BII[BI)V",            reinterpret_cast<void *>(rotateI420)},
         {"i420ToNv12",             "([BII[B)V",             reinterpret_cast<void *>(i420ToNv12)},
-        {"nv21ToI420RotateToNv12", "([BII[BI)V",           reinterpret_cast<void *>(nv21ToI420RotateToNv12)},
+        {"nv21ToI420RotateToNv12", "([BII[BI)V",            reinterpret_cast<void *>(nv21ToI420RotateToNv12)},
         {"connect",                "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
+        {"close",                  "()V",                   reinterpret_cast<void *>(close)},
         {"sendVideo",              "([BJ)Z",                reinterpret_cast<void *>(sendVideo)},
+        {"sendAudio",              "([BJZ)Z",               reinterpret_cast<void *>(sendAudio)},
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -404,4 +461,3 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     return JNI_VERSION_1_4;
 }
-

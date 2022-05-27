@@ -1,17 +1,22 @@
 package com.alick.livertmp.live
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.AlertDialog
-import android.media.MediaCodec
-import android.media.MediaCodecInfo
-import android.media.MediaFormat
+import android.app.ProgressDialog
+import android.content.pm.PackageManager
+import android.media.*
+import android.os.Build
 import android.view.LayoutInflater
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.lifecycleScope
 import com.alick.commonlibrary.BaseActivity
 import com.alick.livertmp.bean.RtmpServer
 import com.alick.livertmp.constant.LiveConstant
@@ -19,20 +24,20 @@ import com.alick.livertmp.databinding.ActivityCameraLiveBinding
 import com.alick.livertmp.databinding.DialogSelectBinding
 import com.alick.livertmp.utils.ExecutorUtils
 import com.alick.livertmp.utils.ImageUtil
-import com.alick.livertmp.utils.TimeConsumingUtils
+import com.alick.livertmp.utils.LiveTaskManager
 import com.alick.rtmplib.RtmpManager
 import com.alick.utilslibrary.BLog
 import com.alick.utilslibrary.FileUtils
 import com.alick.utilslibrary.T
 import com.alick.utilslibrary.TimeUtils
 import com.google.common.util.concurrent.ListenableFuture
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
-import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.thread
-import kotlin.concurrent.timer
-import kotlin.concurrent.timerTask
-import kotlin.system.measureTimeMillis
+import kotlin.math.min
 
 
 class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
@@ -43,7 +48,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     }
 
     private val lock = ReentrantLock()
-    private var mediaCodec: MediaCodec? = null
+    private var videoMediaCodec: MediaCodec? = null
+    private var audioMediaCodec: MediaCodec? = null
 
     private var isInitYUV: Boolean = false
     private lateinit var y: ByteArray
@@ -63,34 +69,27 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private val bufferInfo = MediaCodec.BufferInfo()
     private var isLiving = false  //是否正在直播中
     private var h264File: File? = null
+    private var pcmFile: File? = null
     private var isRecordH264File = false  //是否记录h264数据到文件
+    private var isRecordPcmFile = false  //是否记录pcm数据到文件
 
     private val FRAME_RATE = 24         //帧率24
-    private var pts = 0L                //显示时间戳
-    private var generateIndex = 0L        //生成的帧索引
     private var rtmpConnectState = false  //是否连接rtmp成功
     private var isDestroy = false         //是否已销毁Activity
-    private var isEncoding = false        //是否正在编码
+    private var startNanoTime = 0L          //开始时间,单位:纳秒
+    private var minBufferSize = 0
 
-    private val timeConsumingUtils = TimeConsumingUtils(FRAME_RATE) {
-        BLog.i("每24帧耗时${it}毫秒")
-    }
+    private val sampleRateInHz = 44100
+    private val channelConfig = AudioFormat.CHANNEL_IN_STEREO
+    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+    private val channelCount = 2
 
-    private val block = {
-//                    ImageUtil.nv21_rotate_to_90(nv21, nv21_rotated, width, height)
-//                    ImageUtil.nv21toNV12(nv21_rotated, nv12)
-
-//                    RtmpManager.nv21ToI420(nv21!!, width, height, i420!!)
-//                    RtmpManager.rotateI420(i420!!, width, height, i420_rotated!!, 90)
-//                    RtmpManager.i420ToNv12(i420_rotated!!, height, width, nv12!!)
-        BLog.i("nv21长度:${nv21!!.size}")
-        RtmpManager.nv21ToI420RotateToNv12(nv21!!, width, height, nv12!!, 90)
-    }
+    private var audioRecord: AudioRecord? = null
 
     private var isSoftCoding = false      //是否采用软编码
 
-    private val queue: ArrayBlockingQueue<BufferTask> by lazy {
-        ArrayBlockingQueue(100)
+    private val queue: LinkedBlockingQueue<BufferTask> by lazy {
+        LinkedBlockingQueue()
     }
 
     data class BufferTask(val y: ByteArray, val u: ByteArray, val v: ByteArray)
@@ -175,9 +174,9 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
 
     private fun initMediaCodec(width: Int, height: Int) {
-        if (mediaCodec == null) {
+        if (videoMediaCodec == null) {
             try {
-                mediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                videoMediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
                     .apply {
                         val mediaFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
                         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
@@ -193,10 +192,110 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
     }
 
+    private fun startAudioRecord() {
+        minBufferSize = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat)
+//        minBufferSize = 4096
+        BLog.i("minBufferSize:${minBufferSize}")
+        if (audioRecord == null) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                T.show("缺少录音权限")
+                return
+            }
+            audioRecord = AudioRecord(MediaRecorder.AudioSource.MIC, sampleRateInHz, channelConfig, audioFormat, minBufferSize)
+        }
 
-    private fun encode(nv12: ByteArray) {
+        if (audioMediaCodec == null) {
+            val audioFormat = MediaFormat.createAudioFormat(MediaFormat.MIMETYPE_AUDIO_AAC, sampleRateInHz, channelCount)
+            audioFormat.setInteger(MediaFormat.KEY_BIT_RATE, 96000)
+            audioFormat.setInteger(MediaFormat.KEY_SAMPLE_RATE, sampleRateInHz)
+            audioFormat.setInteger(MediaFormat.KEY_CHANNEL_COUNT, channelCount)
+            audioFormat.setInteger(MediaFormat.KEY_CHANNEL_MASK, AudioFormat.CHANNEL_IN_STEREO)
+            audioFormat.setInteger(MediaFormat.KEY_AAC_PROFILE, MediaCodecInfo.CodecProfileLevel.AACObjectLC)
+            audioFormat.setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, minBufferSize)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                audioFormat.setInteger(MediaFormat.KEY_PCM_ENCODING, AudioFormat.ENCODING_PCM_16BIT)
+            }
+
+            audioMediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
+            audioMediaCodec?.configure(audioFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+        }
+        audioMediaCodec?.start()
+
+        LiveTaskManager.getInstance().execute {
+            try {
+                RtmpManager.sendAudio(byteArrayOf(0x12, 0x08), 0, true)
+
+                val audioData = ByteArray(minBufferSize)
+                val bufferInfo = MediaCodec.BufferInfo()
+                audioRecord?.startRecording()
+
+                while (isLiving) {
+                    val requiredBufferSize = audioRecord?.read(audioData, 0, audioData.size)
+                    if (requiredBufferSize == null || requiredBufferSize <= 0) {
+                        BLog.e("audioData读取数据个数:${requiredBufferSize}")
+                        continue
+                    }
+                    if (isRecordPcmFile) {
+                        FileUtils.writeBytes(pcmFile, true, audioData, requiredBufferSize)
+                        BLog.i("写入pcm文件,16进制内容:${FileUtils.byteArray2Hex(audioData)}")
+                    }
+                    audioMediaCodec?.let { mediaCodec ->
+                        val inputIndex = mediaCodec.dequeueInputBuffer(0)
+                        if (inputIndex >= 0) {
+                            val inputBuffer = mediaCodec.getInputBuffer(inputIndex)!!
+                            inputBuffer.clear()
+                            val remaining = inputBuffer.remaining()
+                            val actualPutSize = min(remaining, requiredBufferSize)
+//                            BLog.i("缓冲区容量:${remaining},需要编码长度:${requiredBufferSize},实际编码长度:${actualPutSize}")
+                            inputBuffer.put(audioData, 0, actualPutSize)
+                            mediaCodec.queueInputBuffer(inputIndex, 0, actualPutSize, (System.nanoTime() - startNanoTime) / 1000, 0)
+                        }
+                        var outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)
+                        while (outputIndex >= 0) {
+                            val outputBuffer = mediaCodec.getOutputBuffer(outputIndex)
+                            outputBuffer?.let {
+                                if (rtmpConnectState) {
+                                    val byteArray = ByteArray(bufferInfo.size)
+                                    it.get(byteArray)
+
+                                    RtmpManager.sendAudio(byteArray, bufferInfo.presentationTimeUs / 1000, false)//由于rtmp需要的时间单位是毫秒,因此需要微秒除以1000转成毫秒
+                                } else {
+                                    BLog.e("rtmp未连接成功,因此不发送音频数据")
+                                }
+                            }
+                            mediaCodec.releaseOutputBuffer(outputIndex, false)
+                            outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)
+                        }
+//                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * 停止并释放录音
+     */
+    private fun stopReleaseRecordAudio() {
+        audioMediaCodec?.apply {
+            stop()
+            release()
+            audioMediaCodec = null
+        }
+
+        audioRecord?.apply {
+            stop()
+            release()
+            audioRecord = null
+        }
+    }
+
+
+    private fun encodeVideo(nv12: ByteArray) {
         initMediaCodec(height, width)
-        mediaCodec?.let { codec ->
+        videoMediaCodec?.let { codec ->
             val inputIndex = codec.dequeueInputBuffer(0)
             if (inputIndex >= 0) {
                 val inputBuffer = codec.getInputBuffer(inputIndex)
@@ -205,10 +304,10 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                     put(nv12)
                 }
 
-                pts = computePresentationTime(generateIndex)
+//                videoPts = computePresentationTime(generateIndex)
                 //输入缓冲区归位
-                codec.queueInputBuffer(inputIndex, 0, nv12.size, pts, 0)
-                generateIndex++
+                codec.queueInputBuffer(inputIndex, 0, nv12.size, (System.nanoTime() - startNanoTime) / 1000, 0)
+//                generateIndex++
 //                BLog.i("generateIndex:${generateIndex}")
             }
 
@@ -228,7 +327,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                     if (rtmpConnectState) {
                         RtmpManager.sendVideo(byteArray, bufferInfo.presentationTimeUs / 1000)
                     } else {
-                        BLog.e("rtmp未连接成功,因此不发送数据")
+                        BLog.e("rtmp未连接成功,因此不发送视频数据")
                     }
                 }
                 //输出缓冲区归位
@@ -255,6 +354,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     }
 
 
+    @SuppressLint("SetTextI18n")
     private fun doubleClick() {
         val binding = DialogSelectBinding.inflate(LayoutInflater.from(this))
         val alertDialog = AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog)
@@ -267,14 +367,15 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         sb.append("旋转角度:${rotationDegrees}\n")
         sb.append("预览布局宽x高:${viewBinding.previewView.width}x${viewBinding.previewView.height}\n")
         sb.append("传输图像宽x高:${height}x${width}\n")//由于摄像头是横着的,所以宽高要互换位置
-        binding.rvServerValue.text = sb.toString()
-        binding.btnLive.text = if (isLiving) {
-            "停止直播"
-        } else {
-            "开始直播"
-        }
+        sb.append("音频minBufferSize:${minBufferSize}\n")
+        binding.tvInfo.text = sb.toString()
+        updateBtnLive(binding)
+
+        updateBtnConnectRtmp(binding)
+
 
         binding.cbRecordH264File.isChecked = isRecordH264File
+        binding.cbRecordPcmFile.isChecked = isRecordPcmFile
 
         binding.btnSaveNV21.setOnClickListener {
             val isSuccess = ImageUtil.saveYUV2File(nv21, File(getExternalFilesDir("nv21"), "nv21_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
@@ -314,13 +415,21 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
 
         binding.btnLive.setOnClickListener {
+            if (!rtmpConnectState) {
+                T.show("请先连接rtmp服务器")
+                return@setOnClickListener
+            }
             if (!isLiving) {
-                h264File = File(getExternalFilesDir("h264"), "live_${TimeUtils.getCurrentTime()}.h264")
+                val currentTime = TimeUtils.getCurrentTime()
+                h264File = File(getExternalFilesDir("h264"), "live_${currentTime}.h264")
+                pcmFile = File(getExternalFilesDir("pcm"), "live_${currentTime}.pcm")
+                startNanoTime = System.nanoTime()
                 isLiving = true
+                startAudioRecord()
                 T.show("开始直播")
             } else {
-                isLiving = false
-                T.show("停止直播")
+                stopLive()
+                updateBtnLive(binding)
             }
             alertDialog.dismiss()
         }
@@ -328,20 +437,77 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         binding.cbRecordH264File.setOnCheckedChangeListener { _, isChecked ->
             isRecordH264File = isChecked
         }
+        binding.cbRecordPcmFile.setOnCheckedChangeListener { _, isChecked ->
+            isRecordPcmFile = isChecked
+        }
 
         binding.btnConnectRtmp.setOnClickListener {
-            val connect = RtmpManager.connect(liveRoomUrl.host)
-            if (connect) {
-                rtmpConnectState = true
-                T.show("连接rtmp成功")
-            } else {
+            if (rtmpConnectState) {
+                stopLive()
+                updateBtnLive(binding)
+                RtmpManager.close()
                 rtmpConnectState = false
-                T.show("连接rtmp失败")
+                updateBtnConnectRtmp(binding)
+                T.show("断开rtmp服务器成功")
+            } else {
+                var progressDialog:ProgressDialog? = ProgressDialog(this)
+                progressDialog?.setCancelable(false)
+                progressDialog?.setMessage("正在连接rtmp服务器...")
+                lifecycleScope.launch {
+                    withContext(Dispatchers.Main) {
+                        binding.btnConnectRtmp.postDelayed({
+                            if (!rtmpConnectState) {
+                                progressDialog?.show()
+                            }
+                        }, 500)
+                    }
+                    withContext(Dispatchers.IO) {
+                        rtmpConnectState = RtmpManager.connect(liveRoomUrl.host)
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (rtmpConnectState) {
+                            updateBtnConnectRtmp(binding)
+                            T.show("连接rtmp服务器成功")
+                        } else {
+                            T.show("连接rtmp服务器失败")
+                        }
+                        progressDialog?.dismiss()
+                        progressDialog=null
+                    }
+                }
             }
         }
 
         BLog.i("宽:${height},高:${width}")
         alertDialog.show()
+    }
+
+    /**
+     * 更新直播按钮UI
+     */
+    private fun updateBtnLive(binding: DialogSelectBinding) {
+        binding.btnLive.text = if (isLiving) {
+            "停止直播"
+        } else {
+            "开始直播"
+        }
+    }
+
+    /**
+     * 更新连接rtmp服务器按钮UI
+     */
+    private fun updateBtnConnectRtmp(binding: DialogSelectBinding) {
+        binding.btnConnectRtmp.text = if (rtmpConnectState) {
+            "断开rtmp服务器"
+        } else {
+            "连接rtmp服务器"
+        }
+    }
+
+    private fun stopLive() {
+        isLiving = false
+        T.show("停止直播")
+        stopReleaseRecordAudio()
     }
 
     private fun addBufferTask(bufferTask: BufferTask) {
@@ -350,32 +516,37 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
 
     private fun startQueue() {
-        thread {
+        LiveTaskManager.getInstance().execute {
             while (!isDestroy) {
                 val bufferTask = queue.take()
                 //YUV写入NV21
                 ImageUtil.yuvToNv21(bufferTask.y, bufferTask.u, bufferTask.v, nv21, width, height)
+//                    ImageUtil.nv21_rotate_to_90(nv21, nv21_rotated, width, height)
+//                    ImageUtil.nv21toNV12(nv21_rotated, nv12)
 
-                block()
-//                timeConsumingUtils.runAndStatistics(block)
+//                    RtmpManager.nv21ToI420(nv21!!, width, height, i420!!)
+//                    RtmpManager.rotateI420(i420!!, width, height, i420_rotated!!, 90)
+//                    RtmpManager.i420ToNv12(i420_rotated!!, height, width, nv12!!)
+                RtmpManager.nv21ToI420RotateToNv12(nv21!!, width, height, nv12!!, 90)
 
                 if (isLiving) {
                     if (isSoftCoding) {
 //                        RtmpManager.sendNV12(nv12!!, nv12!!.size)
                     } else {
-                        encode(nv12!!)
+                        encodeVideo(nv12!!)
                     }
                 } else {
-                    mediaCodec?.apply {
+                    videoMediaCodec?.apply {
                         stop()
                         release()
-                        mediaCodec = null
+                        videoMediaCodec = null
                         BLog.i("mediaCodec已停止,已释放")
                     }
                 }
 
             }
         }
+
     }
 
     /**
@@ -388,10 +559,21 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     override fun onDestroy() {
         super.onDestroy()
         isDestroy = true
-        mediaCodec?.apply {
+        isLiving = false
+        videoMediaCodec?.apply {
             stop()
             release()
-            mediaCodec = null
+            videoMediaCodec = null
+        }
+        audioMediaCodec?.apply {
+            stop()
+            release()
+            audioMediaCodec = null
+        }
+        audioRecord?.apply {
+            stop()
+            release()
+            audioRecord = null
         }
     }
 }

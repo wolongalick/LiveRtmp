@@ -35,7 +35,18 @@ object RtmpManager {
 
     external fun connect(url: String): Boolean
 
+
+    external fun close()
+
+    /**
+     * 发送视频数据
+     */
     external fun sendVideo(data: ByteArray, l: Long): Boolean
+
+    /**
+     * 发送音频数据
+     */
+    external fun sendAudio(data: ByteArray, l: Long, isHeader: Boolean): Boolean
 
 //    external fun setVideoEncInfo(width: Int, height: Int, fps: Int, bitrate: Int)
 //    external fun sendNV12(nv12: ByteArray,nv12Length:Int): Boolean
