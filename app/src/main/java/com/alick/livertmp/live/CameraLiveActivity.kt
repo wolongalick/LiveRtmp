@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.media.*
 import android.os.Build
 import android.view.LayoutInflater
+import android.view.Surface
 import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -88,6 +89,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private var isLiving = false  //是否正在直播中
     private var isDestroy = false         //是否已销毁Activity
     private var isSoftCoding = false      //是否采用软编码
+    private var isUseFrontCamera = true    //是否使用前置摄像头
 
     private val queue: LinkedBlockingQueue<BufferTask> by lazy {
         LinkedBlockingQueue()
@@ -98,9 +100,10 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     override fun initListener() {
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)
         cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-            bindPreview(cameraProvider)
+            bindPreview(cameraProviderFuture.get())
         }, ContextCompat.getMainExecutor(this))
+
+
     }
 
     override fun initData() {
@@ -117,13 +120,31 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     }
 
     private fun bindPreview(cameraProvider: ProcessCameraProvider) {
+        cameraProviderFuture.get().unbindAll()
+
+        val rotation = viewBinding.previewView.display.rotation
+        BLog.i("预览时设置的TargetRotation:${rotation}")
         val preview: Preview = Preview.Builder()
 //            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
-            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
+//            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
+//            .setTargetRotation(rotation)
+//            .setTargetRotation(
+//                if (isUseFrontCamera) {
+//                    Surface.ROTATION_270
+//                } else {
+//                    Surface.ROTATION_90
+//                }
+//            )//没作用
             .build()
 
         val cameraSelector: CameraSelector = CameraSelector.Builder()
-            .requireLensFacing(CameraSelector.LENS_FACING_BACK)
+            .requireLensFacing(
+                if (isUseFrontCamera) {
+                    CameraSelector.LENS_FACING_FRONT
+                } else {
+                    CameraSelector.LENS_FACING_BACK
+                }
+            )
             .build()
 
 //        viewBinding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
@@ -132,7 +153,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         val imageAnalysis = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
 //            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
-            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
+//            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
         imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor2()) { imageProxy ->
@@ -140,7 +161,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             lock.lock()
             rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
-//            BLog.i("旋转角度:${rotationDegrees}")
             width = imageProxy.width
             height = imageProxy.height
             rowStride = imageProxy.planes[0].rowStride
@@ -149,42 +169,34 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 val ySize = imageProxy.planes[0].buffer.remaining()//实际包含了
                 val uSize = imageProxy.planes[1].buffer.remaining()
                 val vSize = imageProxy.planes[2].buffer.remaining()
+
+                val yPixelStride = imageProxy.planes[0].pixelStride
+                val yRowStride = imageProxy.planes[0].rowStride
+                val uPixelStride = imageProxy.planes[1].pixelStride
+                val uRowStride = imageProxy.planes[1].rowStride
+                val vPixelStride = imageProxy.planes[2].pixelStride
+                val vRowStride = imageProxy.planes[2].rowStride
+
+                BLog.i("旋转角度:${rotationDegrees}")
                 BLog.i("ySize:${ySize},uSize:${uSize},vSize:${vSize}")
-//                if (rowStride > width) {
-//                    y = ByteArray(width * height)
-//                    u = ByteArray(width * height / 2)
-//                    v = ByteArray(width * height / 2)
-//                } else {
+                BLog.i("width:${width},height:${height}")
+                BLog.i("yPixelStride:${yPixelStride},yRowStride:${yRowStride},uPixelStride:${uPixelStride},uRowStride:${uRowStride},vPixelStride:${vPixelStride},vRowStride:${vRowStride}")
                 y = ByteArray(ySize)
                 u = ByteArray(uSize)
                 v = ByteArray(vSize)
-//                }
                 //初始化软编码信息
 //                RtmpManager.setVideoEncInfo(imageProxy.width,imageProxy.height,10, 640000)
+                val size = width * height * 3 / 2
+                nv12 = ByteArray(size)
+                i420 = ByteArray(size)
+                i420_rotated = ByteArray(size)
+                nv12_rotated = ByteArray(size)
                 isInitYUV = true
             }
             imageProxy.planes[0].buffer.get(y)
             imageProxy.planes[1].buffer.get(u)
             imageProxy.planes[2].buffer.get(v)
 
-
-//            val yPixelStride = imageProxy.planes[0].pixelStride
-//            val yRowStride = imageProxy.planes[0].rowStride
-//            val uPixelStride = imageProxy.planes[1].pixelStride
-//            val uRowStride = imageProxy.planes[1].rowStride
-//            val vPixelStride = imageProxy.planes[2].pixelStride
-//            val vRowStride = imageProxy.planes[2].rowStride
-
-//            BLog.i("width:${width},height:${height}")
-//            BLog.i("yPixelStride:${yPixelStride},yRowStride:${yRowStride},uPixelStride:${uPixelStride},uRowStride:${uRowStride},vPixelStride:${vPixelStride},vRowStride:${vRowStride}")
-
-            val size = width * height * 3 / 2
-            if (nv12 == null) {
-                nv12 = ByteArray(size)
-                i420 = ByteArray(size)
-                i420_rotated = ByteArray(size)
-                nv12_rotated = ByteArray(size)
-            }
 
             addBufferTask(BufferTask(y, u, v))
 
@@ -193,6 +205,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
 
         var camera = cameraProvider.bindToLifecycle(this as LifecycleOwner, cameraSelector, preview, imageAnalysis)
+
     }
 
 
@@ -397,6 +410,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
         binding.cbRecordH264File.isChecked = isRecordH264File
         binding.cbRecordPcmFile.isChecked = isRecordPcmFile
+        binding.cbUseFrontCamera.isChecked = isUseFrontCamera
 
         binding.btnSaveNV12.setOnClickListener {
             val isSuccess = ImageUtil.saveYUV2File(nv12, File(getExternalFilesDir("nv12"), "nv12_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
@@ -475,6 +489,10 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         binding.cbRecordPcmFile.setOnCheckedChangeListener { _, isChecked ->
             isRecordPcmFile = isChecked
         }
+        binding.cbUseFrontCamera.setOnCheckedChangeListener { _, isChecked ->
+            isUseFrontCamera = isChecked
+            swapCamera()
+        }
 
         binding.btnConnectRtmp.setOnClickListener {
             if (rtmpConnectState) {
@@ -517,6 +535,11 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         alertDialog.show()
     }
 
+    private fun swapCamera() {
+        isInitYUV = false
+        bindPreview(cameraProviderFuture.get())
+    }
+
     /**
      * 更新直播按钮UI
      */
@@ -556,7 +579,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 val bufferTask = queue.take()
                 //YUV写入NV21
                 ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
-                RtmpManager.nv12Rotate(nv12!!, width, height, i420!!, i420_rotated!!, nv12_rotated!!, 90)
+                RtmpManager.nv12Rotate(nv12!!, width, height, i420!!, i420_rotated!!, nv12_rotated!!, rotationDegrees)
 
                 if (isLiving) {
                     if (isSoftCoding) {

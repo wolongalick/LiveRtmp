@@ -53,15 +53,11 @@ nv12Rotate(JNIEnv *env, jobject thiz, jbyteArray src_nv12_data, jint width, jint
     jbyte *i420rotated_data_native = env->GetByteArrayElements(i420rotated_data, JNI_FALSE);
     jbyte *dst_nv12_rotated_data_native = env->GetByteArrayElements(dst_nv12_rotated_data, JNI_FALSE);
 
-
-//    jsize arrayLength = env->GetArrayLength(src_nv12_data);
-//    if (i420rotated_data == nullptr) {
-//        i420rotated_data = static_cast<jbyte *>(malloc(sizeof(jbyte) * arrayLength));
-//    }
-
-//    cxwYuv.nv12ToI420Rotate(src_nv12_data_native, width, height, i420rotated_data_native, degree);
+    //nv12转为i420
     cxwYuv.nv12ToI420(src_nv12_data_native, width, height, i420_data_native);
+    //i420旋转90度
     cxwYuv.rotateI420(i420_data_native,width,height,i420rotated_data_native,degree);
+    //i420转回nv12
     cxwYuv.i420ToNv12(i420rotated_data_native, height, width, dst_nv12_rotated_data_native);
 
     env->ReleaseByteArrayElements(src_nv12_data, src_nv12_data_native, 0);

@@ -1,5 +1,6 @@
 package com.alick.livertmp.utils;
 
+import androidx.annotation.IntDef;
 import androidx.annotation.IntRange;
 
 import com.alick.utilslibrary.BLog;
@@ -8,11 +9,19 @@ import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
 
 public class ImageUtil {
 
     public static final int DST_TYPE_NV12 = 1;  //目标类型:NV12
     public static final int DST_TYPE_NV21 = 2;  //目标类型:NV21
+    public static final int DST_TYPE_I420 = 3;  //目标类型:I420
+
+    @Retention(RetentionPolicy.SOURCE)
+    @IntDef(value = {DST_TYPE_NV12, DST_TYPE_NV21, DST_TYPE_I420})
+    public @interface DstType {
+    }
 
     /**
      * yuvToNv21或nv12
@@ -25,9 +34,11 @@ public class ImageUtil {
      * @param uvPixelsStride uv数据的像素跨距,如果像素跨距是1代表所有u数据连续,所有v数据也连续,如果是2,说明u和v数据交错排列
      * @param width          yuv图像宽度(指的是每一行有效y数据的个数,不含占位字节个数)
      * @param height         yuv图像高度(等同于y的高度,不含uv高度)
-     * @param dstType        转换的目标类型,参考{@link ImageUtil#DST_TYPE_NV12}和{@link ImageUtil#DST_TYPE_NV21 }
+     * @param dstType        转换的目标类型,参考{@link ImageUtil#DST_TYPE_NV12}、{@link ImageUtil#DST_TYPE_NV21}、{@link ImageUtil#DST_TYPE_I420} }
      */
-    public static void yuvToNv12_or_Nv21(byte[] y, byte[] u, byte[] v, byte[] nv12OrNv21, int rowStride, @IntRange(from = 1, to = 2) int uvPixelsStride, int width, int height, int dstType) {
+    public static void yuvToNv12_or_Nv21(byte[] y, byte[] u, byte[] v, byte[] nv12OrNv21, int rowStride,
+                                         @IntRange(from = 1, to = 2) int uvPixelsStride, int width, int height,
+                                         @DstType int dstType) {
         //1.先拷贝y数据
         int srcIndex = 0;
         int dstIndex = 0;

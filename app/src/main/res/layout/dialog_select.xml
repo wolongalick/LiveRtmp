@@ -61,6 +61,11 @@
         android:text="是否记录pcm数据到文件"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content" />
+    <CheckBox
+        android:id="@+id/cbUseFrontCamera"
+        android:text="使用前置摄像头"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
 
     <Button
         android:id="@+id/btnConnectRtmp"
