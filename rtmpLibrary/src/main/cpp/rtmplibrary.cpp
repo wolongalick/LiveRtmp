@@ -43,31 +43,31 @@ i420ToNv12(JNIEnv *env, jobject thiz, jbyteArray src_i420_data, jint width, jint
     env->ReleaseByteArrayElements(dst_nv12_data, dst_nv12_native, 0);
 }
 CxwYuv cxwYuv = CxwYuv();
-jbyte *i420 = nullptr;
-jbyte *i420rotated = nullptr;
+//jbyte *i420rotated = nullptr;
+
 extern "C"
 JNIEXPORT void JNICALL
-nv21ToI420RotateToNv12(JNIEnv *env, jobject thiz, jbyteArray src_nv21_data, jint width, jint height, jbyteArray dst_nv12_data, jint degree) {
-    jbyte *src_nv21_native = env->GetByteArrayElements(src_nv21_data, JNI_FALSE);
-    jbyte *dst_nv12_native = env->GetByteArrayElements(dst_nv12_data, JNI_FALSE);
+nv12Rotate(JNIEnv *env, jobject thiz, jbyteArray src_nv12_data, jint width, jint height,jbyteArray i420_data,jbyteArray i420rotated_data, jbyteArray dst_nv12_rotated_data, jint degree) {
+    jbyte *src_nv12_data_native = env->GetByteArrayElements(src_nv12_data, JNI_FALSE);
+    jbyte *i420_data_native = env->GetByteArrayElements(i420_data, JNI_FALSE);
+    jbyte *i420rotated_data_native = env->GetByteArrayElements(i420rotated_data, JNI_FALSE);
+    jbyte *dst_nv12_rotated_data_native = env->GetByteArrayElements(dst_nv12_rotated_data, JNI_FALSE);
 
-    jsize arrayLength = env->GetArrayLength(src_nv21_data);
 
+//    jsize arrayLength = env->GetArrayLength(src_nv12_data);
+//    if (i420rotated_data == nullptr) {
+//        i420rotated_data = static_cast<jbyte *>(malloc(sizeof(jbyte) * arrayLength));
+//    }
 
-    if (i420 == nullptr) {
-        i420 = static_cast<jbyte *>(malloc(sizeof(jbyte) * arrayLength));
-    }
+//    cxwYuv.nv12ToI420Rotate(src_nv12_data_native, width, height, i420rotated_data_native, degree);
+    cxwYuv.nv12ToI420(src_nv12_data_native, width, height, i420_data_native);
+    cxwYuv.rotateI420(i420_data_native,width,height,i420rotated_data_native,degree);
+    cxwYuv.i420ToNv12(i420rotated_data_native, height, width, dst_nv12_rotated_data_native);
 
-    if (i420rotated == nullptr) {
-        i420rotated = static_cast<jbyte *>(malloc(sizeof(jbyte) * arrayLength));
-    }
-    cxwYuv.nv21ToI420(src_nv21_native, width, height, i420);
-    cxwYuv.rotateI420(i420, width, height, i420rotated, 90);
-    cxwYuv.i420ToNv12(i420rotated, height, width, dst_nv12_native);
-
-    env->ReleaseByteArrayElements(src_nv21_data, src_nv21_native, 0);
-    env->ReleaseByteArrayElements(dst_nv12_data, dst_nv12_native, 0);
-
+    env->ReleaseByteArrayElements(src_nv12_data, src_nv12_data_native, 0);
+    env->ReleaseByteArrayElements(i420_data, i420_data_native, 0);
+    env->ReleaseByteArrayElements(i420rotated_data, i420rotated_data_native, 0);
+    env->ReleaseByteArrayElements(dst_nv12_rotated_data, dst_nv12_rotated_data_native, 0);
 }
 
 /**
@@ -428,20 +428,22 @@ jboolean sendAudio(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs, jbo
 
 
 void close(JNIEnv *env, jobject thiz) {
-    RTMP_Close(mLive->rtmp);
-    RTMP_Free(mLive->rtmp);
-    mLive = nullptr;
+    if (mLive != nullptr) {
+        RTMP_Close(mLive->rtmp);
+        RTMP_Free(mLive->rtmp);
+        mLive = nullptr;
+    }
 }
 
 static JNINativeMethod methods[] = {
-        {"nv21ToI420",             "([BII[B)V",             reinterpret_cast<void *>(nv21ToI420)},
-        {"rotateI420",             "([BII[BI)V",            reinterpret_cast<void *>(rotateI420)},
-        {"i420ToNv12",             "([BII[B)V",             reinterpret_cast<void *>(i420ToNv12)},
-        {"nv21ToI420RotateToNv12", "([BII[BI)V",            reinterpret_cast<void *>(nv21ToI420RotateToNv12)},
-        {"connect",                "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
-        {"close",                  "()V",                   reinterpret_cast<void *>(close)},
-        {"sendVideo",              "([BJ)Z",                reinterpret_cast<void *>(sendVideo)},
-        {"sendAudio",              "([BJZ)Z",               reinterpret_cast<void *>(sendAudio)},
+        {"nv21ToI420", "([BII[B)V",             reinterpret_cast<void *>(nv21ToI420)},
+        {"rotateI420", "([BII[BI)V",            reinterpret_cast<void *>(rotateI420)},
+        {"i420ToNv12", "([BII[B)V",             reinterpret_cast<void *>(i420ToNv12)},
+        {"nv12Rotate", "([BII[B[B[BI)V",          reinterpret_cast<void *>(nv12Rotate)},
+        {"connect",    "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
+        {"close",      "()V",                   reinterpret_cast<void *>(close)},
+        {"sendVideo",  "([BJ)Z",                reinterpret_cast<void *>(sendVideo)},
+        {"sendAudio",  "([BJZ)Z",               reinterpret_cast<void *>(sendAudio)},
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -461,3 +463,4 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     return JNI_VERSION_1_4;
 }
+

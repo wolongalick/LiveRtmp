@@ -22,21 +22,26 @@
         android:textColor="@color/black"
         />
 
-    <Button
-        android:id="@+id/btnSaveNV21"
-        android:text="保存NV21"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
-
-    <Button
-        android:id="@+id/btnSaveNV21Rotate"
-        android:text="保存NV21旋转后的"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
 
     <Button
         android:id="@+id/btnSaveNV12"
         android:text="保存NV12"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+    <Button
+        android:id="@+id/btnI420"
+        android:text="保存I420"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+    <Button
+        android:id="@+id/btnI420rotated"
+        android:text="保存I420旋转后的"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+    <Button
+        android:id="@+id/btnSaveNV12Rotate"
+        android:text="保存NV12旋转后的"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content" />
 

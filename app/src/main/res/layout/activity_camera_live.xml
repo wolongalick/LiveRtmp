@@ -4,17 +4,15 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    tools:context=".live.CameraLiveActivity"
-    android:background="#40ff0000">
-
+    tools:context=".live.CameraLiveActivity">
 
     <androidx.camera.view.PreviewView
         android:id="@+id/previewView"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent"
-        android:background="#AAC886" />
-
+        app:scaleType="fillCenter"
+        />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

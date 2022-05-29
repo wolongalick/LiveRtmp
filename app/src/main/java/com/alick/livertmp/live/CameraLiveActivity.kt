@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.media.*
 import android.os.Build
 import android.view.LayoutInflater
+import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -56,18 +57,17 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private lateinit var u: ByteArray
     private lateinit var v: ByteArray
 
-    private var nv21: ByteArray? = null
+    private var nv12: ByteArray? = null
     private var i420: ByteArray? = null
     private var i420_rotated: ByteArray? = null
-    private var nv21_rotated: ByteArray? = null
-    private var nv12: ByteArray? = null
+    private var nv12_rotated: ByteArray? = null
     private var lastTs = 0L
+    private var rowStride = 0
     private var width = 0
     private var height = 0
     private var rotationDegrees = 0
 
     private val bufferInfo = MediaCodec.BufferInfo()
-    private var isLiving = false  //是否正在直播中
     private var h264File: File? = null
     private var pcmFile: File? = null
     private var isRecordH264File = false  //是否记录h264数据到文件
@@ -75,24 +75,25 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
     private val FRAME_RATE = 24         //帧率24
     private var rtmpConnectState = false  //是否连接rtmp成功
-    private var isDestroy = false         //是否已销毁Activity
     private var startNanoTime = 0L          //开始时间,单位:纳秒
     private var minBufferSize = 0
 
-    private val sampleRateInHz = 44100
-    private val channelConfig = AudioFormat.CHANNEL_IN_STEREO
-    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT
-    private val channelCount = 2
+    private val sampleRateInHz = 44100                          //采样率44100
+    private val channelConfig = AudioFormat.CHANNEL_IN_STEREO   //立体声
+    private val audioFormat = AudioFormat.ENCODING_PCM_16BIT    //音频数据格式,PCM 16 bit per sample
+    private val channelCount = 2                                //双声道
 
     private var audioRecord: AudioRecord? = null
 
+    private var isLiving = false  //是否正在直播中
+    private var isDestroy = false         //是否已销毁Activity
     private var isSoftCoding = false      //是否采用软编码
 
     private val queue: LinkedBlockingQueue<BufferTask> by lazy {
         LinkedBlockingQueue()
     }
 
-    data class BufferTask(val y: ByteArray, val u: ByteArray, val v: ByteArray)
+    data class BufferTask(val y: ByteArray, val u: ByteArray, val v: ByteArray, val yPixelStride: Int = 0, val uPixelStride: Int = 0, val vPixelStride: Int = 0)
 
     override fun initListener() {
         cameraProviderFuture = ProcessCameraProvider.getInstance(this)
@@ -117,19 +118,21 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
     private fun bindPreview(cameraProvider: ProcessCameraProvider) {
         val preview: Preview = Preview.Builder()
-//            .setTargetResolution(Size(700, 700))
+//            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
+            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
             .build()
 
         val cameraSelector: CameraSelector = CameraSelector.Builder()
             .requireLensFacing(CameraSelector.LENS_FACING_BACK)
             .build()
 
-        viewBinding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+//        viewBinding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
         preview.setSurfaceProvider(viewBinding.previewView.surfaceProvider)
 
         val imageAnalysis = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-//            .setTargetResolution(Size(700, 700))
+//            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
+            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
         imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor2()) { imageProxy ->
@@ -138,11 +141,24 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             rotationDegrees = imageProxy.imageInfo.rotationDegrees
 
 //            BLog.i("旋转角度:${rotationDegrees}")
+            width = imageProxy.width
+            height = imageProxy.height
+            rowStride = imageProxy.planes[0].rowStride
 
             if (!isInitYUV) {
-                y = ByteArray(imageProxy.planes[0].buffer.remaining())
-                u = ByteArray(imageProxy.planes[1].buffer.remaining())
-                v = ByteArray(imageProxy.planes[2].buffer.remaining())
+                val ySize = imageProxy.planes[0].buffer.remaining()//实际包含了
+                val uSize = imageProxy.planes[1].buffer.remaining()
+                val vSize = imageProxy.planes[2].buffer.remaining()
+                BLog.i("ySize:${ySize},uSize:${uSize},vSize:${vSize}")
+//                if (rowStride > width) {
+//                    y = ByteArray(width * height)
+//                    u = ByteArray(width * height / 2)
+//                    v = ByteArray(width * height / 2)
+//                } else {
+                y = ByteArray(ySize)
+                u = ByteArray(uSize)
+                v = ByteArray(vSize)
+//                }
                 //初始化软编码信息
 //                RtmpManager.setVideoEncInfo(imageProxy.width,imageProxy.height,10, 640000)
                 isInitYUV = true
@@ -151,16 +167,23 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             imageProxy.planes[1].buffer.get(u)
             imageProxy.planes[2].buffer.get(v)
 
-            width = imageProxy.width
-            height = imageProxy.height
+
+//            val yPixelStride = imageProxy.planes[0].pixelStride
+//            val yRowStride = imageProxy.planes[0].rowStride
+//            val uPixelStride = imageProxy.planes[1].pixelStride
+//            val uRowStride = imageProxy.planes[1].rowStride
+//            val vPixelStride = imageProxy.planes[2].pixelStride
+//            val vRowStride = imageProxy.planes[2].rowStride
+
+//            BLog.i("width:${width},height:${height}")
+//            BLog.i("yPixelStride:${yPixelStride},yRowStride:${yRowStride},uPixelStride:${uPixelStride},uRowStride:${uRowStride},vPixelStride:${vPixelStride},vRowStride:${vRowStride}")
 
             val size = width * height * 3 / 2
-            if (nv21 == null) {
-                nv21 = ByteArray(size)
+            if (nv12 == null) {
+                nv12 = ByteArray(size)
                 i420 = ByteArray(size)
                 i420_rotated = ByteArray(size)
-                nv21_rotated = ByteArray(size)
-                nv12 = ByteArray(size)
+                nv12_rotated = ByteArray(size)
             }
 
             addBufferTask(BufferTask(y, u, v))
@@ -180,8 +203,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                     .apply {
                         val mediaFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
                         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-                        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, 200_000)//比特率
-                        mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)//帧率(fps):15
+                        mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, width * height * 8)//比特率
+                        mediaFormat.setInteger(MediaFormat.KEY_FRAME_RATE, FRAME_RATE)//帧率(fps):24
                         mediaFormat.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)//每隔2秒一个I帧
                         configure(mediaFormat, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
                         start()
@@ -194,7 +217,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
     private fun startAudioRecord() {
         minBufferSize = AudioRecord.getMinBufferSize(sampleRateInHz, channelConfig, audioFormat)
-//        minBufferSize = 4096
         BLog.i("minBufferSize:${minBufferSize}")
         if (audioRecord == null) {
             if (ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -266,7 +288,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                             mediaCodec.releaseOutputBuffer(outputIndex, false)
                             outputIndex = mediaCodec.dequeueOutputBuffer(bufferInfo, 0)
                         }
-//                        }
                     }
                 }
             } catch (e: Exception) {
@@ -377,33 +398,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         binding.cbRecordH264File.isChecked = isRecordH264File
         binding.cbRecordPcmFile.isChecked = isRecordPcmFile
 
-        binding.btnSaveNV21.setOnClickListener {
-            val isSuccess = ImageUtil.saveYUV2File(nv21, File(getExternalFilesDir("nv21"), "nv21_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
-            T.show(
-                if (isSuccess) {
-                    "保存成功"
-                } else {
-                    "保存失败"
-                }
-            )
-            alertDialog.dismiss()
-        }
-
-        binding.btnSaveNV21Rotate.setOnClickListener {
-            //由于摄像头是横着的,所以宽高要互换位置
-            val isSuccess = ImageUtil.saveYUV2File(nv21_rotated, File(getExternalFilesDir("nv21rotated"), "nv21rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
-            T.show(
-                if (isSuccess) {
-                    "保存成功"
-                } else {
-                    "保存失败"
-                }
-            )
-            alertDialog.dismiss()
-        }
-
         binding.btnSaveNV12.setOnClickListener {
-            val isSuccess = ImageUtil.saveYUV2File(nv12, File(getExternalFilesDir("nv12"), "nv12_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
+            val isSuccess = ImageUtil.saveYUV2File(nv12, File(getExternalFilesDir("nv12"), "nv12_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
             T.show(
                 if (isSuccess) {
                     "保存成功"
@@ -413,6 +409,45 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             )
             alertDialog.dismiss()
         }
+
+        binding.btnI420.setOnClickListener {
+            val isSuccess = ImageUtil.saveYUV2File(i420, File(getExternalFilesDir("i420"), "i420_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
+            T.show(
+                if (isSuccess) {
+                    "保存成功"
+                } else {
+                    "保存失败"
+                }
+            )
+            alertDialog.dismiss()
+        }
+
+
+        binding.btnI420rotated.setOnClickListener {
+            val isSuccess = ImageUtil.saveYUV2File(i420_rotated, File(getExternalFilesDir("i420_rotated"), "i420_rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
+            T.show(
+                if (isSuccess) {
+                    "保存成功"
+                } else {
+                    "保存失败"
+                }
+            )
+            alertDialog.dismiss()
+        }
+
+        binding.btnSaveNV12Rotate.setOnClickListener {
+            val isSuccess = ImageUtil.saveYUV2File(nv12_rotated, File(getExternalFilesDir("nv12_rotated"), "nv12_rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
+            T.show(
+                if (isSuccess) {
+                    "保存成功"
+                } else {
+                    "保存失败"
+                }
+            )
+            alertDialog.dismiss()
+        }
+
+
 
         binding.btnLive.setOnClickListener {
             if (!rtmpConnectState) {
@@ -450,7 +485,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 updateBtnConnectRtmp(binding)
                 T.show("断开rtmp服务器成功")
             } else {
-                var progressDialog:ProgressDialog? = ProgressDialog(this)
+                var progressDialog: ProgressDialog? = ProgressDialog(this)
                 progressDialog?.setCancelable(false)
                 progressDialog?.setMessage("正在连接rtmp服务器...")
                 lifecycleScope.launch {
@@ -472,7 +507,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                             T.show("连接rtmp服务器失败")
                         }
                         progressDialog?.dismiss()
-                        progressDialog=null
+                        progressDialog = null
                     }
                 }
             }
@@ -520,20 +555,14 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             while (!isDestroy) {
                 val bufferTask = queue.take()
                 //YUV写入NV21
-                ImageUtil.yuvToNv21(bufferTask.y, bufferTask.u, bufferTask.v, nv21, width, height)
-//                    ImageUtil.nv21_rotate_to_90(nv21, nv21_rotated, width, height)
-//                    ImageUtil.nv21toNV12(nv21_rotated, nv12)
-
-//                    RtmpManager.nv21ToI420(nv21!!, width, height, i420!!)
-//                    RtmpManager.rotateI420(i420!!, width, height, i420_rotated!!, 90)
-//                    RtmpManager.i420ToNv12(i420_rotated!!, height, width, nv12!!)
-                RtmpManager.nv21ToI420RotateToNv12(nv21!!, width, height, nv12!!, 90)
+                ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
+                RtmpManager.nv12Rotate(nv12!!, width, height, i420!!, i420_rotated!!, nv12_rotated!!, 90)
 
                 if (isLiving) {
                     if (isSoftCoding) {
 //                        RtmpManager.sendNV12(nv12!!, nv12!!.size)
                     } else {
-                        encodeVideo(nv12!!)
+                        encodeVideo(nv12_rotated!!)
                     }
                 } else {
                     videoMediaCodec?.apply {
@@ -575,5 +604,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             release()
             audioRecord = null
         }
+        RtmpManager.close()
     }
 }

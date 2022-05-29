@@ -1,5 +1,7 @@
 package com.alick.livertmp.utils;
 
+import androidx.annotation.IntRange;
+
 import com.alick.utilslibrary.BLog;
 
 import java.io.BufferedOutputStream;
@@ -8,17 +10,54 @@ import java.io.FileOutputStream;
 import java.io.OutputStream;
 
 public class ImageUtil {
-    //    nv21ToNV12
-    public static void yuvToNv21(byte[] y, byte[] u, byte[] v, byte[] nv21, int stride, int height) {
-        System.arraycopy(y, 0, nv21, 0, y.length);
-        // 注意，若length值为 y.length * 3 / 2 会有数组越界的风险，需使用真实数据长度计算
-        int length = y.length + u.length / 2 + v.length / 2;
-        int uIndex = 0, vIndex = 0;
-        for (int i = stride * height; i < length; i += 2) {
-            nv21[i] = v[vIndex];
-            nv21[i + 1] = u[uIndex];
-            vIndex += 2;
-            uIndex += 2;
+
+    public static final int DST_TYPE_NV12 = 1;  //目标类型:NV12
+    public static final int DST_TYPE_NV21 = 2;  //目标类型:NV21
+
+    /**
+     * yuvToNv21或nv12
+     *
+     * @param y              y数据(包含占位字节)
+     * @param u              u数据(包含占位字节)
+     * @param v              v数据(包含占位字节)
+     * @param nv12OrNv21     待填充的nv12或nv21数组
+     * @param rowStride      每一行的跨距(rowStride值一定≥width,原因是要内存对齐)
+     * @param uvPixelsStride uv数据的像素跨距,如果像素跨距是1代表所有u数据连续,所有v数据也连续,如果是2,说明u和v数据交错排列
+     * @param width          yuv图像宽度(指的是每一行有效y数据的个数,不含占位字节个数)
+     * @param height         yuv图像高度(等同于y的高度,不含uv高度)
+     * @param dstType        转换的目标类型,参考{@link ImageUtil#DST_TYPE_NV12}和{@link ImageUtil#DST_TYPE_NV21 }
+     */
+    public static void yuvToNv12_or_Nv21(byte[] y, byte[] u, byte[] v, byte[] nv12OrNv21, int rowStride, @IntRange(from = 1, to = 2) int uvPixelsStride, int width, int height, int dstType) {
+        //1.先拷贝y数据
+        int srcIndex = 0;
+        int dstIndex = 0;
+        for (int j = 0; j < height; j++) {
+            System.arraycopy(y, srcIndex, nv12OrNv21, dstIndex, width);
+            srcIndex += rowStride;
+            dstIndex += width;
+        }
+
+        //2.再拷贝uv数据
+        srcIndex = 0;//重置为0
+        for (int j = 0; j < height / 2; j++) {
+            for (int k = 0; k < width / 2; k++) {
+                switch (dstType) {
+                    case DST_TYPE_NV12:
+                        nv12OrNv21[dstIndex++] = u[srcIndex];
+                        nv12OrNv21[dstIndex++] = v[srcIndex];
+                        break;
+                    case DST_TYPE_NV21:
+                        nv12OrNv21[dstIndex++] = v[srcIndex];
+                        nv12OrNv21[dstIndex++] = u[srcIndex];
+                        break;
+                }
+                srcIndex += uvPixelsStride;
+            }
+            if (uvPixelsStride == 2) {
+                srcIndex += rowStride - width;
+            } else if (uvPixelsStride == 1) {
+                srcIndex += rowStride - width / 2;
+            }
         }
     }
 //滴滴 小问题
@@ -56,7 +95,7 @@ public class ImageUtil {
     //3/2    2   1
     public static void nv21toNV12(byte[] nv21, byte[] nv12) {
         int size = nv21.length;
-        int len = size * 2 / 3;
+        int len  = size * 2 / 3;
         System.arraycopy(nv21, 0, nv12, 0, len);
 
         int i = len;
@@ -130,4 +169,6 @@ public class ImageUtil {
         }
         return false;
     }
+
+
 }
