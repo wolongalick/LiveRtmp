@@ -1,5 +1,7 @@
 package com.alick.rtmplib
 
+import androidx.annotation.StringDef
+
 /**
  * @author 崔兴旺
  * @description
@@ -27,11 +29,29 @@ object RtmpManager {
      */
     external fun i420ToNv12(src_i420_data: ByteArray, width: Int, height: Int, dst_nv12_data: ByteArray)
 
+
+    interface OnProcessing {
+        @kotlin.annotation.Retention(AnnotationRetention.SOURCE)
+        @StringDef(value = [callbackType_nv12ToI420, callbackType_rotateI420, callbackType_i420Mirror, callbackType_i420ToNv12])
+        annotation class CallbackTypeAnnotation {
+
+        }
+
+        companion object {
+            const val callbackType_nv12ToI420: String = "nv12ToI420"
+            const val callbackType_rotateI420: String = "rotateI420"
+            const val callbackType_i420Mirror: String = "i420Mirror"
+            const val callbackType_i420ToNv12: String = "i420ToNv12"
+        }
+
+        fun callback(@CallbackTypeAnnotation callbackType: String, result: ByteArray)
+
+    }
+
     /**
      * nv12旋转
      */
-    external fun nv12Rotate(src_nv12_data: ByteArray, width: Int, height: Int,i420:ByteArray,i420_rotated:ByteArray, dst_nv12_rotated_data: ByteArray, degree: Int)
-
+    external fun nv12Rotate(src_nv12_data: ByteArray, width: Int, height: Int, dst_nv12_rotated_data: ByteArray, degree: Int, mirror: Boolean, onProcessing: OnProcessing? = null)
 
     external fun connect(url: String): Boolean
 

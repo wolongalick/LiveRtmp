@@ -8,13 +8,10 @@ import android.content.pm.PackageManager
 import android.media.*
 import android.os.Build
 import android.view.LayoutInflater
-import android.view.Surface
-import androidx.camera.core.AspectRatio
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
@@ -59,9 +56,8 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private lateinit var v: ByteArray
 
     private var nv12: ByteArray? = null
-    private var i420: ByteArray? = null
-    private var i420_rotated: ByteArray? = null
     private var nv12_rotated: ByteArray? = null
+
     private var lastTs = 0L
     private var rowStride = 0
     private var width = 0
@@ -89,7 +85,12 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private var isLiving = false  //是否正在直播中
     private var isDestroy = false         //是否已销毁Activity
     private var isSoftCoding = false      //是否采用软编码
-    private var isUseFrontCamera = true    //是否使用前置摄像头
+    private var isUseFrontCamera = false    //是否使用前置摄像头
+    private var debugOutYUV = false
+    private lateinit var alertDialog: AlertDialog
+
+    @RtmpManager.OnProcessing.CallbackTypeAnnotation
+    private var currentCallbackType = RtmpManager.OnProcessing.callbackType_nv12ToI420
 
     private val queue: LinkedBlockingQueue<BufferTask> by lazy {
         LinkedBlockingQueue()
@@ -154,6 +155,13 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
 //            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
 //            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
+//            .setTargetRotation(
+//                if (isUseFrontCamera) {
+//                    Surface.ROTATION_270
+//                } else {
+//                    Surface.ROTATION_90
+//                }
+//            )
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
         imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor2()) { imageProxy ->
@@ -188,8 +196,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 //                RtmpManager.setVideoEncInfo(imageProxy.width,imageProxy.height,10, 640000)
                 val size = width * height * 3 / 2
                 nv12 = ByteArray(size)
-                i420 = ByteArray(size)
-                i420_rotated = ByteArray(size)
                 nv12_rotated = ByteArray(size)
                 isInitYUV = true
             }
@@ -214,6 +220,10 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             try {
                 videoMediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
                     .apply {
+                        val capabilitiesForType = codecInfo.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+                        capabilitiesForType.colorFormats.forEach {
+                            BLog.i("colorFormats:${it}")
+                        }
                         val mediaFormat = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height)
                         mediaFormat.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
                         mediaFormat.setInteger(MediaFormat.KEY_BIT_RATE, width * height * 8)//比特率
@@ -391,7 +401,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     @SuppressLint("SetTextI18n")
     private fun doubleClick() {
         val binding = DialogSelectBinding.inflate(LayoutInflater.from(this))
-        val alertDialog = AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog)
+        alertDialog = AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog)
             .setView(binding.root)
             .setCancelable(true)
             .create()
@@ -425,28 +435,23 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
 
         binding.btnI420.setOnClickListener {
-            val isSuccess = ImageUtil.saveYUV2File(i420, File(getExternalFilesDir("i420"), "i420_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
-            T.show(
-                if (isSuccess) {
-                    "保存成功"
-                } else {
-                    "保存失败"
-                }
-            )
-            alertDialog.dismiss()
+            debugOutYUV = true
+            currentCallbackType = RtmpManager.OnProcessing.callbackType_nv12ToI420
         }
 
 
         binding.btnI420rotated.setOnClickListener {
-            val isSuccess = ImageUtil.saveYUV2File(i420_rotated, File(getExternalFilesDir("i420_rotated"), "i420_rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
-            T.show(
-                if (isSuccess) {
-                    "保存成功"
-                } else {
-                    "保存失败"
-                }
-            )
-            alertDialog.dismiss()
+            debugOutYUV = true
+            currentCallbackType = RtmpManager.OnProcessing.callbackType_rotateI420
+        }
+
+        binding.btnI420mirror.setOnClickListener {
+            if (!isUseFrontCamera) {
+                T.show("请切换至前置摄像头,再使用此功能")
+                return@setOnClickListener
+            }
+            debugOutYUV = true
+            currentCallbackType = RtmpManager.OnProcessing.callbackType_i420Mirror
         }
 
         binding.btnSaveNV12Rotate.setOnClickListener {
@@ -460,8 +465,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             )
             alertDialog.dismiss()
         }
-
-
 
         binding.btnLive.setOnClickListener {
             if (!rtmpConnectState) {
@@ -579,7 +582,46 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                 val bufferTask = queue.take()
                 //YUV写入NV21
                 ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
-                RtmpManager.nv12Rotate(nv12!!, width, height, i420!!, i420_rotated!!, nv12_rotated!!, rotationDegrees)
+
+                val onProcessing = object : RtmpManager.OnProcessing {
+                    override fun callback(@RtmpManager.OnProcessing.CallbackTypeAnnotation callbackType: String, result: ByteArray) {
+                        debugOutYUV = false
+                        var isSuccess = false
+                        if (currentCallbackType == callbackType) {
+                            when (callbackType) {
+                                RtmpManager.OnProcessing.callbackType_nv12ToI420 -> {
+                                    BLog.i("完成回调:nv12转i420")
+                                    isSuccess = ImageUtil.saveYUV2File(result, File(getExternalFilesDir("i420"), "i420_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
+                                }
+                                RtmpManager.OnProcessing.callbackType_rotateI420 -> {
+                                    BLog.i("完成回调:i420旋转")
+                                    isSuccess = ImageUtil.saveYUV2File(result, File(getExternalFilesDir("i420_rotated"), "i420_rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
+                                }
+                                RtmpManager.OnProcessing.callbackType_i420Mirror -> {
+                                    BLog.i("完成回调:i420镜像翻转")
+                                    isSuccess = ImageUtil.saveYUV2File(result, File(getExternalFilesDir("i420_mirror"), "i420_mirror_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
+                                }
+                            }
+                            T.show(
+                                if (isSuccess) {
+                                    "保存成功"
+                                } else {
+                                    "保存失败"
+                                }
+                            )
+                            alertDialog.dismiss()
+                            currentCallbackType = ""
+                        }
+                    }
+
+                }
+                RtmpManager.nv12Rotate(
+                    nv12!!, width, height, nv12_rotated!!, rotationDegrees, isUseFrontCamera, if (debugOutYUV) {
+                        onProcessing
+                    } else {
+                        null
+                    }
+                )
 
                 if (isLiving) {
                     if (isSoftCoding) {

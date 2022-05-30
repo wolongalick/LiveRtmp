@@ -23,6 +23,9 @@ public:
     //I420旋转
     void rotateI420(jbyte *src_i420_data, jint width, jint height, jbyte *dst_i420_data, jint degree);
 
+    //I420镜像
+    void i420Mirror(jbyte *src_i420_data, jint width, jint height, jbyte *dst_i420_data);
+
     //I420转换成NV12
     void i420ToNv12(jbyte *src_i420_data, jint width, jint height, jbyte *dst_nv12_data);
 

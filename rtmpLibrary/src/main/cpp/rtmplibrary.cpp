@@ -43,28 +43,83 @@ i420ToNv12(JNIEnv *env, jobject thiz, jbyteArray src_i420_data, jint width, jint
     env->ReleaseByteArrayElements(dst_nv12_data, dst_nv12_native, 0);
 }
 CxwYuv cxwYuv = CxwYuv();
-//jbyte *i420rotated = nullptr;
+jbyte *tempYuv1 = nullptr;
+jbyte *tempYuv2 = nullptr;
+jint lastWidth = 0;
+jint lastHeight = 0;
+
+const char *callbackType_nv12ToI420 = "nv12ToI420";
+const char *callbackType_rotateI420 = "rotateI420";
+const char *callbackType_i420Mirror = "i420Mirror";
+const char *callbackType_i420ToNv12 = "i420ToNv12";
+
+void processCallback(JNIEnv *env, jint width, jint height, jobject on_processing, jstring callbackTypeStr, jbyte *result) {
+    jclass onProcessingClass = env->FindClass("com/alick/rtmplib/RtmpManager$OnProcessing");
+    jmethodID methodId = env->GetMethodID(onProcessingClass, "callback", "(Ljava/lang/String;[B)V");
+    jbyteArray pArray = env->NewByteArray(width * height * 1.5);
+    env->SetByteArrayRegion(pArray, 0, width * height * 1.5, result);
+    env->CallVoidMethod(on_processing, methodId, callbackTypeStr, pArray);
+}
+
+
+jbyte *createTempYuv(jint width, jint height) {
+    jbyte *tempYuv = nullptr;
+    jsize yuvLength = width * height * 1.5;
+    LOGI("tempYuvLength:%d", yuvLength);
+    tempYuv = static_cast<jbyte *>(malloc(sizeof(jbyte) * yuvLength));
+    return tempYuv;
+}
 
 extern "C"
 JNIEXPORT void JNICALL
-nv12Rotate(JNIEnv *env, jobject thiz, jbyteArray src_nv12_data, jint width, jint height,jbyteArray i420_data,jbyteArray i420rotated_data, jbyteArray dst_nv12_rotated_data, jint degree) {
-    jbyte *src_nv12_data_native = env->GetByteArrayElements(src_nv12_data, JNI_FALSE);
-    jbyte *i420_data_native = env->GetByteArrayElements(i420_data, JNI_FALSE);
-    jbyte *i420rotated_data_native = env->GetByteArrayElements(i420rotated_data, JNI_FALSE);
-    jbyte *dst_nv12_rotated_data_native = env->GetByteArrayElements(dst_nv12_rotated_data, JNI_FALSE);
+nv12Rotate(JNIEnv *env, jobject thiz, jbyteArray src_nv12_data, jint width, jint height, jbyteArray dst_nv12_rotated_data, jint degree, jboolean mirror, jobject on_processing) {
+    jbyte *src = env->GetByteArrayElements(src_nv12_data, JNI_FALSE);
+    jbyte *dst = env->GetByteArrayElements(dst_nv12_rotated_data, JNI_FALSE);
+
+    if (lastWidth != width || lastHeight != height) {
+        LOGI("lastWidth:%d,lastHeight:%d", lastWidth, lastHeight)
+        tempYuv1 = createTempYuv(width, height);
+        tempYuv2 = createTempYuv(width, height);
+        lastWidth = width;
+        lastHeight = height;
+    }
 
     //nv12转为i420
-    cxwYuv.nv12ToI420(src_nv12_data_native, width, height, i420_data_native);
-    //i420旋转90度
-    cxwYuv.rotateI420(i420_data_native,width,height,i420rotated_data_native,degree);
-    //i420转回nv12
-    cxwYuv.i420ToNv12(i420rotated_data_native, height, width, dst_nv12_rotated_data_native);
+    cxwYuv.nv12ToI420(src, width, height, tempYuv1);
 
-    env->ReleaseByteArrayElements(src_nv12_data, src_nv12_data_native, 0);
-    env->ReleaseByteArrayElements(i420_data, i420_data_native, 0);
-    env->ReleaseByteArrayElements(i420rotated_data, i420rotated_data_native, 0);
-    env->ReleaseByteArrayElements(dst_nv12_rotated_data, dst_nv12_rotated_data_native, 0);
+    if (on_processing != nullptr) {
+        processCallback(env, width, height, on_processing, env->NewStringUTF(callbackType_nv12ToI420), tempYuv1);
+    }
+    //i420旋转90度
+    cxwYuv.rotateI420(tempYuv1, width, height, tempYuv2, degree);
+    if (on_processing != nullptr) {
+        processCallback(env, width, height, on_processing, env->NewStringUTF(callbackType_rotateI420), tempYuv2);
+    }
+    if (mirror) {
+        //i420镜像
+        cxwYuv.i420Mirror(tempYuv2, height, width, tempYuv1);
+        if (on_processing != nullptr) {
+            processCallback(env, width, height, on_processing, env->NewStringUTF(callbackType_i420Mirror), tempYuv1);
+        }
+        //i420转回nv12
+        cxwYuv.i420ToNv12(tempYuv1, height, width, dst);
+        if (on_processing != nullptr) {
+            processCallback(env, width, height, on_processing, env->NewStringUTF(callbackType_i420ToNv12), dst);
+        }
+    } else {
+        //i420转回nv12
+        cxwYuv.i420ToNv12(tempYuv2, height, width, dst);
+        if (on_processing != nullptr) {
+            processCallback(env, width, height, on_processing, env->NewStringUTF(callbackType_i420ToNv12), dst);
+        }
+    }
+    env->ReleaseByteArrayElements(src_nv12_data, src, 0);
+    env->ReleaseByteArrayElements(dst_nv12_rotated_data, dst, 0);
 }
+
+
+
+
 
 /**
  * rtmp结构体
@@ -432,14 +487,14 @@ void close(JNIEnv *env, jobject thiz) {
 }
 
 static JNINativeMethod methods[] = {
-        {"nv21ToI420", "([BII[B)V",             reinterpret_cast<void *>(nv21ToI420)},
-        {"rotateI420", "([BII[BI)V",            reinterpret_cast<void *>(rotateI420)},
-        {"i420ToNv12", "([BII[B)V",             reinterpret_cast<void *>(i420ToNv12)},
-        {"nv12Rotate", "([BII[B[B[BI)V",          reinterpret_cast<void *>(nv12Rotate)},
-        {"connect",    "(Ljava/lang/String;)Z", reinterpret_cast<void *>(connect)},
-        {"close",      "()V",                   reinterpret_cast<void *>(close)},
-        {"sendVideo",  "([BJ)Z",                reinterpret_cast<void *>(sendVideo)},
-        {"sendAudio",  "([BJZ)Z",               reinterpret_cast<void *>(sendAudio)},
+        {"nv21ToI420", "([BII[B)V",                                               reinterpret_cast<void *>(nv21ToI420)},
+        {"rotateI420", "([BII[BI)V",                                              reinterpret_cast<void *>(rotateI420)},
+        {"i420ToNv12", "([BII[B)V",                                               reinterpret_cast<void *>(i420ToNv12)},
+        {"nv12Rotate", "([BII[BIZLcom/alick/rtmplib/RtmpManager$OnProcessing;)V", reinterpret_cast<void *>(nv12Rotate)},
+        {"connect",    "(Ljava/lang/String;)Z",                                   reinterpret_cast<void *>(connect)},
+        {"close",      "()V",                                                     reinterpret_cast<void *>(close)},
+        {"sendVideo",  "([BJ)Z",                                                  reinterpret_cast<void *>(sendVideo)},
+        {"sendAudio",  "([BJZ)Z",                                                 reinterpret_cast<void *>(sendAudio)},
 };
 
 JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
@@ -459,4 +514,3 @@ JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
 
     return JNI_VERSION_1_4;
 }
-
