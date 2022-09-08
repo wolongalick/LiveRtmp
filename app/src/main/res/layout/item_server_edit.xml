@@ -22,7 +22,7 @@
         android:id="@+id/tvHost"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:text="rtmp://39.105.182.221/myapp/camera"
+        android:text="rtmp://1.1.1.1/myapp/camera"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toStartOf="@id/ivSelector"
         app:layout_constraintTop_toBottomOf="@id/tvAlias"
