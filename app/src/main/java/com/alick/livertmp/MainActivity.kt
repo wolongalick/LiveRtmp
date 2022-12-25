@@ -24,7 +24,7 @@ class MainActivity : BaseActivity<ActivityMainBinding>() {
                 RtmpServer("B站", "rtmp://live-push.bilivideo.com/live-bvc/?streamname=live_49872005_3293420&key=5c0c6bdce470a12211ffe3f15ab50dae&schedule=rtmp&pflag=1"),
                 RtmpServer("公网", "rtmp://1.1.1.1/myapp/camera"),
                 RtmpServer("局域网", "rtmp://192.168.0.104/myapp/camera"),
-                RtmpServer("自定义", "", isEnableEdit = true),
+                RtmpServer("自定义",StorageUtils.getString(SpConstant.CUSTOM_RTMP_URL), isEnableEdit = true),
             ).apply {
                 this[StorageUtils.getInt(SpConstant.SELECTED_RTMP_URL_INDEX)].isSelected = true
             }
