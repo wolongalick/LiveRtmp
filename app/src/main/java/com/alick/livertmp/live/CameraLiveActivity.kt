@@ -99,6 +99,9 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     @RtmpManager.OnProcessing.CallbackTypeAnnotation
     private var currentCallbackType = RtmpManager.OnProcessing.callbackType_nv12ToI420
 
+    private var errorCount = 0  // 错误计数，如果多少次发送失败，则需要重启视频流
+    private var reconnecting = false  // 是否正在重连中
+
     private val queue: LinkedBlockingQueue<BufferTask> by lazy {
         LinkedBlockingQueue()
     }
@@ -404,15 +407,24 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
                         while (outputIndex >= 0) {
                             val outputBuffer = mediaCodec.getOutputBuffer(outputIndex)
                             outputBuffer?.let {
-                                if (rtmpConnectState) {
+                                if (rtmpConnectState && reconnecting.not()) {
                                     val byteArray = ByteArray(bufferInfo.size)
                                     it.get(byteArray)
 
-                                    RtmpManager.sendAudio(
+                                    val success = RtmpManager.sendAudio(
                                         byteArray,
                                         bufferInfo.presentationTimeUs / 1000,
                                         false
                                     )//由于rtmp需要的时间单位是毫秒,因此需要微秒除以1000转成毫秒
+
+                                    if (success) {
+                                        errorCount = 0
+                                    } else {
+                                        errorCount += 1
+                                    }
+                                    if (errorCount > 10) {
+                                        restartRtmp()
+                                    }
                                 } else {
                                     BLog.e("rtmp未连接成功,因此不发送音频数据")
                                 }
@@ -483,8 +495,17 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
 //                    BLog.i("presentationTimeUs:${bufferInfo.presentationTimeUs}")
 
-                    if (rtmpConnectState) {
-                        RtmpManager.sendVideo(byteArray, bufferInfo.presentationTimeUs / 1000)
+                    if (rtmpConnectState && reconnecting.not()) {
+                        val success =
+                            RtmpManager.sendVideo(byteArray, bufferInfo.presentationTimeUs / 1000)
+                        if (success) {
+                            errorCount = 0
+                        } else {
+                            errorCount += 1
+                        }
+                        if (errorCount > 10) {
+                            restartRtmp()
+                        }
                     } else {
                         BLog.e("rtmp未连接成功,因此不发送视频数据")
                     }
@@ -664,6 +685,49 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
         BLog.i("宽:${height},高:${width}")
         alertDialog.show()
+    }
+
+    /**
+     * 网络异常断开或端口断开时，需要自动重启视频流
+     */
+    private fun restartRtmp() {
+        if (reconnecting || rtmpConnectState.not()) {
+            return
+        }
+        reconnecting = true
+        lifecycleScope.launch {
+            BLog.i("检测到断开，准备自动重连")
+            // 释放 mediacodec， 使其下次重新初始化
+            stopLive()
+            rtmpConnectState = false
+            // 直接断开rtmp
+            RtmpManager.close()
+
+            // 重新链接 rtmp
+            withContext(Dispatchers.IO) {
+                Thread.sleep(1000)
+                val newConnectState = RtmpManager.connect(liveRoomUrl.host)
+                reconnecting = false
+                errorCount = 0
+                // 如果重连失败，则更新界面
+                withContext(Dispatchers.Main) {
+                    if (newConnectState) {
+                        BLog.i("检测到断开，自动重连成功")
+                        T.show("检测到rtmp断开，已自动重连")
+                        rtmpConnectState = true
+                        startNanoTime = System.nanoTime()
+                        isLiving = true
+                        startAudioRecord()
+                        T.show("开始直播")
+                    } else {
+                        stopLive()
+                        RtmpManager.close()
+                        rtmpConnectState = false
+                    }
+                }
+                BLog.i("重连成功准备发送数据")
+            }
+        }
     }
 
     private fun swapCamera() {

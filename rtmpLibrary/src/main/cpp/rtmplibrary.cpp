@@ -416,16 +416,21 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
 
     jsize frameLength = env->GetArrayLength(data);
 
+    jboolean retstatu = FALSE;
     if (frame[4] == 0x67 && (mLive->sps == nullptr || mLive->pps == nullptr)) {
         //如果此帧是sps,且live中的sps或pps为空,则需要保存sps和pps(sps和pps一定在同一组字节数组中出现,所以可以一起解析)
         saveSPS_PPS(frame, frameLength, mLive);
     } else {
+        if ((mLive->sps == nullptr || mLive->pps == nullptr)){
+            return TRUE;  // 如果是重连的rtmp 等待获取到完整的 sps 再继续发送
+        }
         if (frame[4] == 0x65) {//当为I帧时,需要先放sps和pps,再发送I帧
             //1.先发送sps和pps
             RTMPPacket *spsPpsPacket = createSpsPpsPacket(mLive->sps, mLive->pps, mLive->sps_len, mLive->pps_len);
             bool sps_pps_result = sendPacket(spsPpsPacket);
             if (sps_pps_result) {
 //                LOGI("sps和pps发送成功")
+                retstatu = TRUE;
             } else {
                 LOGE("sps和pps发送失败")
             }
@@ -434,6 +439,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
             int iFrameResult = sendPacket(IFramePacket);
             if (iFrameResult) {
 //                LOGI("I帧发送成功")
+                retstatu = TRUE;
             } else {
                 LOGE("I帧发送失败")
             }
@@ -443,6 +449,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
             int pbFrameResult = sendPacket(P_BFramePacket);
             if (pbFrameResult) {
 //                LOGI("P帧或B帧发送成功")
+                retstatu = TRUE;
             } else {
                 LOGE("P帧或B帧发送失败")
             }
@@ -451,7 +458,7 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
 
     //释放视频帧
     env->ReleaseByteArrayElements(data, frame, 0);
-    return FALSE;
+    return retstatu;
 }
 
 /**
@@ -466,15 +473,19 @@ jboolean sendVideo(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs) {
 jboolean sendAudio(JNIEnv *env, jobject thiz, jbyteArray data, jlong timeMs, jboolean isHeader) {
     jbyte *audioData = env->GetByteArrayElements(data, FALSE);
     RTMPPacket *pPacket = createAudioPacket(audioData, env->GetArrayLength(data), timeMs, isHeader);
+
+    jboolean retstatu = FALSE;
+
     int audioResult = sendPacket(pPacket);
     if (audioResult) {
 //        LOGI("发送音频包成功")
+        retstatu = TRUE;
     } else {
         LOGE("发送音频包失败")
     }
     env->ReleaseByteArrayElements(data, audioData, 0);
 
-    return FALSE;
+    return retstatu;
 }
 
 
