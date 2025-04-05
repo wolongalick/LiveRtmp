@@ -461,74 +461,81 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private fun encodeVideo(nv12: ByteArray) {
         initMediaCodec(height, width)
         videoMediaCodec?.let { codec ->
-            val inputIndex = codec.dequeueInputBuffer(0)
-            if (inputIndex >= 0) {
-                val inputBuffer = codec.getInputBuffer(inputIndex)
-                inputBuffer?.apply {
-                    clear()
-                    put(nv12)
-                }
+            try {
+                val inputIndex = codec.dequeueInputBuffer(0)
+                if (inputIndex >= 0) {
+                    val inputBuffer = codec.getInputBuffer(inputIndex)
+                    inputBuffer?.apply {
+                        clear()
+                        put(nv12)
+                    }
 
 //                videoPts = computePresentationTime(generateIndex)
-                //输入缓冲区归位
-                codec.queueInputBuffer(
-                    inputIndex,
-                    0,
-                    nv12.size,
-                    (System.nanoTime() - startNanoTime) / 1000,
-                    0
-                )
+                    //输入缓冲区归位
+                    codec.queueInputBuffer(
+                        inputIndex,
+                        0,
+                        nv12.size,
+                        (System.nanoTime() - startNanoTime) / 1000,
+                        0
+                    )
 //                generateIndex++
 //                BLog.i("generateIndex:${generateIndex}")
-            }
+                }
 
-            val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
-            if (outputIndex >= 0) {
-                val outputBuffer = codec.getOutputBuffer(outputIndex)
-                outputBuffer?.let { byteBuffer ->
-                    val byteArray = ByteArray(byteBuffer.remaining())
-                    byteBuffer.get(byteArray)
-                    if (isRecordH264File) {
-                        FileUtils.writeBytes(h264File, true, byteArray)
-                        BLog.i("写入H264文件,16进制内容:${FileUtils.byteArray2Hex(byteArray)}")
-                    }
+                val outputIndex = codec.dequeueOutputBuffer(bufferInfo, 0)
+                if (outputIndex >= 0) {
+                    val outputBuffer = codec.getOutputBuffer(outputIndex)
+                    outputBuffer?.let { byteBuffer ->
+                        val byteArray = ByteArray(byteBuffer.remaining())
+                        byteBuffer.get(byteArray)
+                        if (isRecordH264File) {
+                            FileUtils.writeBytes(h264File, true, byteArray)
+                            BLog.i("写入H264文件,16进制内容:${FileUtils.byteArray2Hex(byteArray)}")
+                        }
 
 //                    BLog.i("presentationTimeUs:${bufferInfo.presentationTimeUs}")
 
-                    if (rtmpConnectState && reconnecting.not()) {
-                        val success =
-                            RtmpManager.sendVideo(byteArray, bufferInfo.presentationTimeUs / 1000)
-                        if (success) {
-                            errorCount = 0
+                        if (rtmpConnectState && reconnecting.not()) {
+                            val success =
+                                RtmpManager.sendVideo(
+                                    byteArray,
+                                    bufferInfo.presentationTimeUs / 1000
+                                )
+                            if (success) {
+                                errorCount = 0
+                            } else {
+                                errorCount += 1
+                            }
+                            if (errorCount > 10) {
+                                restartRtmp()
+                            }
                         } else {
-                            errorCount += 1
+                            BLog.e("rtmp未连接成功,因此不发送视频数据")
                         }
-                        if (errorCount > 10) {
-                            restartRtmp()
+                    }
+                    //输出缓冲区归位
+                    codec.releaseOutputBuffer(outputIndex, false)
+                } else if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    val spsByteBuffer = codec.outputFormat.getByteBuffer("csd-0")
+                    val ppsByteBuffer = codec.outputFormat.getByteBuffer("csd-1")
+
+                    val sps = spsByteBuffer?.let {
+                        ByteArray(it.remaining()).apply {
+                            it.get(this)
                         }
-                    } else {
-                        BLog.e("rtmp未连接成功,因此不发送视频数据")
                     }
-                }
-                //输出缓冲区归位
-                codec.releaseOutputBuffer(outputIndex, false)
-            } else if (outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
-                val spsByteBuffer = codec.outputFormat.getByteBuffer("csd-0")
-                val ppsByteBuffer = codec.outputFormat.getByteBuffer("csd-1")
+                    val pps = ppsByteBuffer?.let {
+                        ByteArray(it.remaining()).apply {
+                            it.get(this)
+                        }
+                    }
 
-                val sps = spsByteBuffer?.let {
-                    ByteArray(it.remaining()).apply {
-                        it.get(this)
-                    }
+                    BLog.i("SPS数据:${FileUtils.byteArray2Hex(sps)}")
+                    BLog.i("PPS数据:${FileUtils.byteArray2Hex(pps)}")
                 }
-                val pps = ppsByteBuffer?.let {
-                    ByteArray(it.remaining()).apply {
-                        it.get(this)
-                    }
-                }
-
-                BLog.i("SPS数据:${FileUtils.byteArray2Hex(sps)}")
-                BLog.i("PPS数据:${FileUtils.byteArray2Hex(pps)}")
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
