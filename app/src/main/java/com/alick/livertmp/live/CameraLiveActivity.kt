@@ -705,7 +705,6 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 
             // 重新链接 rtmp
             withContext(Dispatchers.IO) {
-                Thread.sleep(1000)
                 val newConnectState = RtmpManager.connect(liveRoomUrl.host)
                 reconnecting = false
                 errorCount = 0
