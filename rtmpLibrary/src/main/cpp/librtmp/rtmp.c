@@ -3386,10 +3386,13 @@ RTMP_Close(RTMP *r)
     {
       if (r->m_stream_id > 0)
         {
+          i = r->m_stream_id;
+            r->m_stream_id = 0;
           if ((r->Link.protocol & RTMP_FEATURE_WRITE))
 	    SendFCUnpublish(r);
-	  i = r->m_stream_id;
-	  r->m_stream_id = 0;
+          // 调换位置， SendFCUnpublish -》 RTMP_Close -> 不断的循环导致栈溢出
+//	  i = r->m_stream_id;
+//	  r->m_stream_id = 0;
 	  SendDeleteStream(r, i);
 	}
       if (r->m_clientID.av_val)
