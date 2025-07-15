@@ -104,7 +104,7 @@ class CameraLiveActivity : BaseLiveActivity<ActivityCameraLiveBinding>() {
 
     override fun initData() {
         binding.previewView.setOnLongClickListener {
-            doubleClick()
+            longClick()
             true
         }
 
@@ -388,9 +388,10 @@ class CameraLiveActivity : BaseLiveActivity<ActivityCameraLiveBinding>() {
         }
     }
 
-
-    @SuppressLint("SetTextI18n")
-    private fun doubleClick() {
+    /**
+     * 长按屏幕
+     */
+    private fun longClick() {
         val binding = DialogSelectBinding.inflate(LayoutInflater.from(this))
         alertDialog = AlertDialog.Builder(this, androidx.appcompat.R.style.Theme_AppCompat_Light_Dialog)
             .setView(binding.root)
