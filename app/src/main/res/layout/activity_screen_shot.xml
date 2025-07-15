@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    tools:context=".ScreenShotActivity">
+
+    <TextClock
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="24sp"
+        android:format12Hour="HH:mm:ss"
+        android:format24Hour="HH:mm:ss"
+        />
+
+    <com.alick.livertmp.widget.SimpleDrawingView
+        android:id="@+id/drawingView"
+        android:layout_width="match_parent"
+        android:layout_height="300dp"
+        android:background="@drawable/frame"/>
+
+
+    <Button
+        android:id="@+id/btnClear"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="清屏" />
+
+
+    <Button
+        android:id="@+id/btnConnectRtmp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="连接rtmp服务器" />
+
+
+    <Button
+        android:id="@+id/btnScreenShot"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="开始截屏" />
+
+    <Button
+        android:id="@+id/btnSaveNV12"
+        android:text="保存NV12"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+    <CheckBox
+        android:id="@+id/cbSaveFile"
+        android:text="是否保存截屏到文件"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+    <CheckBox
+        android:id="@+id/cbSaveMP4"
+        android:text="是否实时录制MP4"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
+
+</LinearLayout>

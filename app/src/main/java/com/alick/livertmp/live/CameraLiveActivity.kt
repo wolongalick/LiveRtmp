@@ -7,6 +7,7 @@ import android.app.ProgressDialog
 import android.content.pm.PackageManager
 import android.media.*
 import android.os.Build
+import android.os.Looper
 import android.view.LayoutInflater
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
@@ -16,12 +17,9 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
-import com.alick.commonlibrary.BaseActivity
-import com.alick.livertmp.bean.RtmpServer
-import com.alick.livertmp.constant.LiveConstant
+import com.alick.livertmp.base.BaseLiveActivity
 import com.alick.livertmp.databinding.ActivityCameraLiveBinding
 import com.alick.livertmp.databinding.DialogSelectBinding
-import com.alick.livertmp.utils.ExecutorUtils
 import com.alick.livertmp.utils.ImageUtil
 import com.alick.livertmp.utils.LiveTaskManager
 import com.alick.rtmplib.RtmpManager
@@ -29,6 +27,7 @@ import com.alick.utilslibrary.BLog
 import com.alick.utilslibrary.FileUtils
 import com.alick.utilslibrary.T
 import com.alick.utilslibrary.TimeUtils
+import com.alick.livertmp.utils.ThreadPoolManager
 import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -39,12 +38,8 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.math.min
 
 
-class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
+class CameraLiveActivity : BaseLiveActivity<ActivityCameraLiveBinding>() {
     private lateinit var cameraProviderFuture: ListenableFuture<ProcessCameraProvider>
-
-    private val liveRoomUrl: RtmpServer by lazy {
-        intent.getSerializableExtra(LiveConstant.INTENT_KEY_LIVE_ROOM_URL) as RtmpServer
-    }
 
     private val lock = ReentrantLock()
     private var videoMediaCodec: MediaCodec? = null
@@ -71,7 +66,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private var isRecordPcmFile = false  //是否记录pcm数据到文件
 
     private val FRAME_RATE = 24         //帧率24
-    private var rtmpConnectState = false  //是否连接rtmp成功
+
     private var startNanoTime = 0L          //开始时间,单位:纳秒
     private var minBufferSize = 0
 
@@ -108,13 +103,9 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     }
 
     override fun initData() {
-        viewBinding.previewView.setOnClickListener {
-            val ts = System.currentTimeMillis()
-            if (ts - lastTs < 300) {
-                //执行双击逻辑
-                doubleClick()
-            }
-            lastTs = ts
+        binding.previewView.setOnLongClickListener {
+            doubleClick()
+            true
         }
 
         startQueue()
@@ -123,10 +114,10 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
     private fun bindPreview(cameraProvider: ProcessCameraProvider) {
         cameraProviderFuture.get().unbindAll()
 
-        val rotation = viewBinding.previewView.display.rotation
+        val rotation = binding.previewView.display.rotation
         BLog.i("预览时设置的TargetRotation:${rotation}")
         val preview: Preview = Preview.Builder()
-//            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
+//            .setTargetResolution(Size(binding.previewView.width, binding.previewView.height))
 //            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
 //            .setTargetRotation(rotation)
 //            .setTargetRotation(
@@ -148,12 +139,12 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             )
             .build()
 
-//        viewBinding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
-        preview.setSurfaceProvider(viewBinding.previewView.surfaceProvider)
+//        binding.previewView.scaleType = PreviewView.ScaleType.FIT_CENTER
+        preview.setSurfaceProvider(binding.previewView.surfaceProvider)
 
         val imageAnalysis = ImageAnalysis.Builder()
             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_YUV_420_888)
-//            .setTargetResolution(Size(viewBinding.previewView.width, viewBinding.previewView.height))
+//            .setTargetResolution(Size(binding.previewView.width, binding.previewView.height))
 //            .setTargetAspectRatio(AspectRatio.RATIO_16_9)//导致闪退
 //            .setTargetRotation(
 //                if (isUseFrontCamera) {
@@ -164,7 +155,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
 //            )
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
             .build()
-        imageAnalysis.setAnalyzer(ExecutorUtils.getExecutor2()) { imageProxy ->
+        imageAnalysis.setAnalyzer(ThreadPoolManager.getInstance()) { imageProxy ->
             //旋转角度
             lock.lock()
             rotationDegrees = imageProxy.imageInfo.rotationDegrees
@@ -409,7 +400,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         val sb = StringBuilder()
         sb.append(liveRoomUrl.alias + "\n" + liveRoomUrl.host + "\n")
         sb.append("旋转角度:${rotationDegrees}\n")
-        sb.append("预览布局宽x高:${viewBinding.previewView.width}x${viewBinding.previewView.height}\n")
+        sb.append("预览布局宽x高:${this@CameraLiveActivity.binding.previewView.width}x${this@CameraLiveActivity.binding.previewView.height}\n")
         sb.append("传输图像宽x高:${height}x${width}\n")//由于摄像头是横着的,所以宽高要互换位置
         sb.append("音频minBufferSize:${minBufferSize}\n")
         binding.tvInfo.text = sb.toString()
@@ -423,7 +414,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         binding.cbUseFrontCamera.isChecked = isUseFrontCamera
 
         binding.btnSaveNV12.setOnClickListener {
-            val isSuccess = ImageUtil.saveYUV2File(nv12, File(getExternalFilesDir("nv12"), "nv12_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
+            val isSuccess = ImageUtil.saveYUV2File(nv12!!, File(getExternalFilesDir("nv12"), "nv12_${width}x${height}_${TimeUtils.getCurrentTime()}.yuv"))
             T.show(
                 if (isSuccess) {
                     "保存成功"
@@ -455,7 +446,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
         }
 
         binding.btnSaveNV12Rotate.setOnClickListener {
-            val isSuccess = ImageUtil.saveYUV2File(nv12_rotated, File(getExternalFilesDir("nv12_rotated"), "nv12_rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
+            val isSuccess = ImageUtil.saveYUV2File(nv12_rotated!!, File(getExternalFilesDir("nv12_rotated"), "nv12_rotated_${height}x${width}_${TimeUtils.getCurrentTime()}.yuv"))
             T.show(
                 if (isSuccess) {
                     "保存成功"
@@ -581,7 +572,7 @@ class CameraLiveActivity : BaseActivity<ActivityCameraLiveBinding>() {
             while (!isDestroy) {
                 val bufferTask = queue.take()
                 //YUV写入NV21
-                ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
+                ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12!!, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
 
                 val onProcessing = object : RtmpManager.OnProcessing {
                     override fun callback(@RtmpManager.OnProcessing.CallbackTypeAnnotation callbackType: String, result: ByteArray) {

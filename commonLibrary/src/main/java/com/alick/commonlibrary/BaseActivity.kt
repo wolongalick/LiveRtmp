@@ -1,11 +1,8 @@
 package com.alick.commonlibrary
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.viewbinding.ViewBinding
 import com.google.android.material.appbar.MaterialToolbar
@@ -19,7 +16,7 @@ import java.lang.reflect.ParameterizedType
  */
 abstract class BaseActivity<Binding : ViewBinding> : AppCompatActivity() {
 
-    lateinit var viewBinding: Binding
+    lateinit var binding: Binding
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -42,7 +39,7 @@ abstract class BaseActivity<Binding : ViewBinding> : AppCompatActivity() {
         val entityClass: Class<Binding> = type as Class<Binding>
         try {
             val method = entityClass.getMethod("inflate", LayoutInflater::class.java)
-            viewBinding = method.invoke(null, LayoutInflater.from(this)) as Binding
+            binding = method.invoke(null, LayoutInflater.from(this)) as Binding
         } catch (e: NoSuchMethodException) {
             e.printStackTrace()
         } catch (e: IllegalAccessException) {
@@ -50,7 +47,7 @@ abstract class BaseActivity<Binding : ViewBinding> : AppCompatActivity() {
         } catch (e: InvocationTargetException) {
             e.printStackTrace()
         }
-        return viewBinding.root
+        return binding.root
     }
 
     protected open fun getMaterialToolbar(): MaterialToolbar?{

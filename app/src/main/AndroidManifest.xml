@@ -17,6 +17,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.LiveRtmp">
         <activity
+            android:name=".ScreenShotActivity"
+            android:exported="false" />
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
