@@ -571,8 +571,8 @@ class CameraLiveActivity : BaseLiveActivity<ActivityCameraLiveBinding>() {
         LiveTaskManager.getInstance().execute {
             while (!isDestroy) {
                 val bufferTask = queue.take()
-                //YUV写入NV21
-                ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12!!, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
+                //YUV写入NV12
+                ImageUtil.yuvToNv12_or_Nv21(bufferTask.y, bufferTask.u, bufferTask.v, nv12, rowStride, 2, width, height, ImageUtil.DST_TYPE_NV12)
 
                 val onProcessing = object : RtmpManager.OnProcessing {
                     override fun callback(@RtmpManager.OnProcessing.CallbackTypeAnnotation callbackType: String, result: ByteArray) {
